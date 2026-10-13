@@ -28,7 +28,10 @@ export default function ForgotPasswordPage() {
     let redirectTo: URL;
 
     try {
-      redirectTo = new URL("/auth/confirm", `${appUrl.replace(/\/+$/, "")}/`);
+      redirectTo = new URL(
+        "/auth/recovery",
+        `${appUrl.replace(/\/+$/, "")}/`,
+      );
     } catch {
       setErrorMessage(
         "The password reset URL is not configured correctly. Please contact your administrator.",
@@ -36,7 +39,6 @@ export default function ForgotPasswordPage() {
       return;
     }
 
-    redirectTo.searchParams.set("next", "/set-password");
     setIsSubmitting(true);
 
     try {

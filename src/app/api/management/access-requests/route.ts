@@ -4,6 +4,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 const teams = ["flight", "fulfilment", "facilities"] as const;
 
+type AppTeam = (typeof teams)[number];
+
 type RequestRow = {
   request_id: string;
   user_id: string | null;
@@ -25,12 +27,39 @@ type Actor = {
   nests: number[];
 };
 
+type ReviewBody = {
+  requestId: string;
+  decision: "approve" | "reject";
+  reviewNote: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isTeam(value: unknown): value is AppTeam {
+  return typeof value === "string" && teams.includes(value as AppTeam);
+}
+
+function actorHasCountryAccess(
+  actor: Actor,
+  requestedCountry: string | null,
+): boolean {
+  const normalizedCountry = requestedCountry?.trim().toUpperCase();
+
+  if (!normalizedCountry) {
+    return false;
+  }
+
+  return actor.countries.some(
+    (country) => country.trim().toUpperCase() === normalizedCountry,
+  );
+}
+
 async function getActor(): Promise<Actor | null> {
   const sessionClient = await createSessionClient();
-  const {
-    data: claimsData,
-    error: authError,
-  } = await sessionClient.auth.getClaims();
+  const { data: claimsData, error: authError } =
+    await sessionClient.auth.getClaims();
 
   const userId = claimsData?.claims?.sub;
 
@@ -49,6 +78,7 @@ async function getActor(): Promise<Actor | null> {
       .select("is_active")
       .eq("user_id", userId)
       .maybeSingle(),
+
     admin
       .from("app_user_roles")
       .select("role")
@@ -59,7 +89,7 @@ async function getActor(): Promise<Actor | null> {
     return null;
   }
 
-  const roles = (roleRows ?? []).map((row) => row.role as string);
+  const roles = (roleRows ?? []).map((row) => String(row.role));
 
   const [
     { data: countryRows, error: countryError },
@@ -69,6 +99,7 @@ async function getActor(): Promise<Actor | null> {
       .from("app_user_country_access")
       .select("country")
       .eq("user_id", userId),
+
     admin
       .from("app_user_nest_access")
       .select("nest_id")
@@ -82,10 +113,10 @@ async function getActor(): Promise<Actor | null> {
   return {
     userId,
     roles,
-    countries: (countryRows ?? []).map((row) => row.country as string),
-    nests: Array.from(
-      new Set((nestRows ?? []).map((row) => Number(row.nest_id))),
-    ),
+    countries: (countryRows ?? []).map((row) => String(row.country)),
+    nests: [
+      ...new Set((nestRows ?? []).map((row) => Number(row.nest_id))),
+    ],
   };
 }
 
@@ -94,14 +125,29 @@ function canManageRequest(actor: Actor, row: RequestRow): boolean {
     return true;
   }
 
+  const hasCountryAccess = actorHasCountryAccess(
+    actor,
+    row.requested_country,
+  );
+
+  // Business Ops Managers can review requests within their assigned country.
   if (
     actor.roles.includes("business_ops_manager") &&
-    row.requested_country &&
-    actor.countries.includes(row.requested_country)
+    hasCountryAccess
   ) {
     return true;
   }
 
+  // Procurement can review Quartermaster requests within its country scope.
+  if (
+    actor.roles.includes("procurement") &&
+    row.requested_role === "quartermaster" &&
+    hasCountryAccess
+  ) {
+    return true;
+  }
+
+  // Nest Leads can review Quartermaster requests for their assigned nests.
   return (
     actor.roles.includes("nest_lead") &&
     row.requested_role === "quartermaster" &&
@@ -159,10 +205,9 @@ async function ensureRole(userId: string, role: string): Promise<void> {
     return;
   }
 
-  const { error: insertError } = await admin.from("app_user_roles").insert({
-    user_id: userId,
-    role,
-  });
+  const { error: insertError } = await admin
+    .from("app_user_roles")
+    .insert({ user_id: userId, role });
 
   if (insertError) {
     throw new Error(insertError.message);
@@ -202,32 +247,53 @@ async function ensureCountryAccess(
 async function ensureNestTeamAccess(
   userId: string,
   nestId: number,
-  team: string,
+  team: AppTeam,
 ): Promise<void> {
+  if (!Number.isSafeInteger(nestId) || nestId <= 0) {
+    throw new Error("The requested nest ID is invalid.");
+  }
+
   const admin = createAdminClient();
 
-  const { data: existing, error: checkError } = await admin
-    .from("app_user_nest_access")
-    .select("user_id")
-    .eq("user_id", userId)
-    .eq("nest_id", nestId)
-    .eq("team", team)
-    .maybeSingle();
+  async function readAssignment() {
+    const { data, error } = await admin
+      .from("app_user_nest_access")
+      .select("user_id, nest_id, team")
+      .eq("user_id", userId)
+      .eq("nest_id", nestId)
+      .eq("team", team)
+      .maybeSingle();
 
-  if (checkError) {
-    throw new Error(checkError.message);
+    if (error) {
+      throw new Error(`Could not verify nest access: ${error.message}`);
+    }
+
+    return data;
   }
 
-  if (existing) {
-    return;
+  const existing = await readAssignment();
+
+  if (!existing) {
+    const { error: insertError } = await admin
+      .from("app_user_nest_access")
+      .insert({
+        user_id: userId,
+        nest_id: nestId,
+        team,
+      });
+
+    if (insertError) {
+      throw new Error(`Could not save nest access: ${insertError.message}`);
+    }
   }
 
-  const { error: insertError } = await admin
-    .from("app_user_nest_access")
-    .insert({ user_id: userId, nest_id: nestId, team });
+  // Confirm the exact user, nest, and team assignment was persisted.
+  const savedAssignment = await readAssignment();
 
-  if (insertError) {
-    throw new Error(insertError.message);
+  if (!savedAssignment) {
+    throw new Error(
+      `Nest access was not saved for nest ${nestId} and team ${team}.`,
+    );
   }
 }
 
@@ -254,6 +320,7 @@ export async function GET() {
 
     if (error) {
       console.error("Could not load access requests:", error.message);
+
       return NextResponse.json(
         { error: "Could not load access requests." },
         { status: 500 },
@@ -264,9 +331,13 @@ export async function GET() {
       canManageRequest(actor, row),
     );
 
-    return NextResponse.json({ requests });
+    return NextResponse.json(
+      { requests },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch (error) {
     console.error("Access request list failed:", error);
+
     return NextResponse.json(
       { error: "Could not load access requests." },
       { status: 500 },
@@ -285,20 +356,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = await request.json().catch(() => null);
+    const rawBody: unknown = await request.json().catch(() => null);
 
     if (
-      !body ||
-      typeof body.requestId !== "string" ||
-      !["approve", "reject"].includes(body.decision)
+      !isRecord(rawBody) ||
+      typeof rawBody.requestId !== "string" ||
+      (rawBody.decision !== "approve" && rawBody.decision !== "reject")
     ) {
       return NextResponse.json(
-        {
-          error: "Provide a request ID and an approve or reject decision.",
-        },
+        { error: "Provide a request ID and an approve or reject decision." },
         { status: 400 },
       );
     }
+
+    const body: ReviewBody = {
+      requestId: rawBody.requestId,
+      decision: rawBody.decision,
+      reviewNote:
+        typeof rawBody.reviewNote === "string" ? rawBody.reviewNote : "",
+    };
 
     const admin = createAdminClient();
     const { data: accessRequest, error: requestError } = await admin
@@ -330,13 +406,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const reviewNote =
-      typeof body.reviewNote === "string"
-        ? body.reviewNote.trim().slice(0, 1000)
-        : null;
+    const reviewNote = body.reviewNote.trim().slice(0, 1000) || null;
 
     if (body.decision === "reject") {
-      const { error: updateError } = await admin
+      const { data: updatedRequest, error: updateError } = await admin
         .from("app_access_requests")
         .update({
           status: "rejected",
@@ -345,13 +418,19 @@ export async function POST(request: NextRequest) {
           review_note: reviewNote,
         })
         .eq("request_id", row.request_id)
-        .eq("status", "pending");
+        .eq("status", "pending")
+        .select("request_id")
+        .maybeSingle();
 
-      if (updateError) {
-        console.error("Could not reject access request:", updateError.message);
+      if (updateError || !updatedRequest) {
+        console.error(
+          "Could not reject access request:",
+          updateError?.message ?? "Request was already reviewed.",
+        );
+
         return NextResponse.json(
-          { error: "Could not reject this request." },
-          { status: 500 },
+          { error: "Could not reject this request. Refresh and try again." },
+          { status: 409 },
         );
       }
 
@@ -368,7 +447,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const email = row.requester_email.toLowerCase();
+    const email = row.requester_email.trim().toLowerCase();
     let authUser = await findAuthUserByEmail(email);
     let invitationSent = false;
 
@@ -382,6 +461,7 @@ export async function POST(request: NextRequest) {
 
       if (inviteError || !inviteData.user) {
         console.error("Could not invite requester:", inviteError?.message);
+
         return NextResponse.json(
           {
             error:
@@ -410,10 +490,14 @@ export async function POST(request: NextRequest) {
       );
 
     if (profileError) {
-      throw new Error(profileError.message);
+      throw new Error(
+        `Could not save the user profile: ${profileError.message}`,
+      );
     }
 
     await ensureRole(userId, row.requested_role);
+
+    let assignedNest: { nestId: number; team: string } | null = null;
 
     if (row.requested_role === "procurement") {
       if (!row.requested_country) {
@@ -422,33 +506,27 @@ export async function POST(request: NextRequest) {
 
       await ensureCountryAccess(userId, row.requested_country);
     } else if (row.requested_role === "nest_lead") {
-      if (!row.requested_nest_id) {
-        throw new Error("Nest Lead request has no nest.");
+      const nestId = Number(row.requested_nest_id);
+
+      if (!Number.isSafeInteger(nestId) || nestId <= 0) {
+        throw new Error("Nest Lead request has no valid nest.");
       }
 
       for (const team of teams) {
-        await ensureNestTeamAccess(
-          userId,
-          Number(row.requested_nest_id),
-          team,
-        );
+        await ensureNestTeamAccess(userId, nestId, team);
       }
+
+      assignedNest = { nestId, team: "*" };
     } else if (row.requested_role === "quartermaster") {
+      const nestId = Number(row.requested_nest_id);
       const team = row.requested_team;
 
-      if (
-        !row.requested_nest_id ||
-        typeof team !== "string" ||
-        !teams.includes(team as (typeof teams)[number])
-      ) {
+      if (!Number.isSafeInteger(nestId) || nestId <= 0 || !isTeam(team)) {
         throw new Error("Quartermaster request has an invalid nest or team.");
       }
 
-      await ensureNestTeamAccess(
-        userId,
-        Number(row.requested_nest_id),
-        team,
-      );
+      await ensureNestTeamAccess(userId, nestId, team);
+      assignedNest = { nestId, team };
     } else {
       throw new Error("This request role is not supported.");
     }
@@ -467,10 +545,12 @@ export async function POST(request: NextRequest) {
       });
 
     if (auditError) {
-      throw new Error(auditError.message);
+      throw new Error(
+        `Could not write the access audit log: ${auditError.message}`,
+      );
     }
 
-    const { error: updateError } = await admin
+    const { data: updatedRequest, error: updateError } = await admin
       .from("app_access_requests")
       .update({
         user_id: userId,
@@ -480,23 +560,31 @@ export async function POST(request: NextRequest) {
         review_note: reviewNote,
       })
       .eq("request_id", row.request_id)
-      .eq("status", "pending");
+      .eq("status", "pending")
+      .select("request_id")
+      .maybeSingle();
 
-    if (updateError) {
-      throw new Error(updateError.message);
+    if (updateError || !updatedRequest) {
+      throw new Error(
+        updateError?.message ?? "The request was already reviewed.",
+      );
     }
 
     return NextResponse.json({
       success: true,
       decision: "approved",
       invitationSent,
+      assignedNest,
     });
   } catch (error) {
     console.error("Access request review failed:", error);
+
     return NextResponse.json(
       {
         error:
-          "Could not complete the access request. Check the server log.",
+          error instanceof Error
+            ? error.message
+            : "Could not complete the access request. Check the server log.",
       },
       { status: 500 },
     );
