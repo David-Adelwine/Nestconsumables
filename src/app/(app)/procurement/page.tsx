@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { AccessRequestQueue } from "@/components/access/AccessRequestQueue";
 
 type Team = "flight" | "fulfilment" | "facilities";
 
@@ -361,6 +362,12 @@ export default function ProcurementPage() {
           detail={`${orderLines.length} items in the draft`}
         />
       </section>
+
+
+      <AccessRequestQueue
+  title="Quartermaster access requests"
+  description="Review Quartermaster requests within your assigned country or nest access."
+/>
 
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(350px,0.85fr)]">
         <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">

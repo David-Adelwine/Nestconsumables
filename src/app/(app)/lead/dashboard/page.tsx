@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 type Team = "flight" | "fulfilment" | "facilities";
 type TeamFilter = Team | "all";
@@ -28,6 +23,18 @@ type CatalogItem = {
   stockUpdatedAt: string | null;
 };
 
+type AccessRequest = {
+  id: string;
+  requesterName: string;
+  requesterEmail: string;
+  role: string;
+  country: string | null;
+  nestId: string;
+  team: string | null;
+  reason: string;
+  createdAt: string;
+};
+
 type DashboardData = {
   availableNests: NestOption[];
   assignedNest: {
@@ -39,6 +46,17 @@ type DashboardData = {
   };
   allowedTeams: Team[];
   items: CatalogItem[];
+  pendingAccessRequests?: AccessRequest[];
+};
+
+type ReviewDecision = "approved" | "declined";
+
+type ReviewResponse = {
+  success?: boolean;
+  error?: string;
+  decision?: ReviewDecision;
+  notificationSent?: boolean;
+  notificationError?: string;
 };
 
 const teamLabels: Record<Team, string> = {
@@ -80,6 +98,11 @@ export default function NestLeadDashboardPage() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [reviewError, setReviewError] = useState("");
+  const [reviewWarning, setReviewWarning] = useState("");
+  const [reviewMessage, setReviewMessage] = useState("");
+  const [reviewingRequestId, setReviewingRequestId] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -130,20 +153,69 @@ export default function NestLeadDashboardPage() {
     void loadDashboard();
 
     return () => controller.abort();
-  }, [selectedNestId]);
+  }, [selectedNestId, refreshKey]);
+
+  async function handleReview(
+    requestId: string,
+    decision: ReviewDecision,
+  ) {
+    setReviewingRequestId(requestId);
+    setReviewError("");
+    setReviewWarning("");
+    setReviewMessage("");
+
+    try {
+      const response = await fetch("/api/access-requests/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestId, decision }),
+      });
+
+      const result = (await response.json().catch(() => ({}))) as ReviewResponse;
+
+      if (!response.ok) {
+        throw new Error(result.error ?? "Unable to review this request.");
+      }
+
+      if (result.notificationSent === false) {
+        setReviewMessage(
+          decision === "approved"
+            ? "Access request approved and access was granted."
+            : "Access request declined.",
+        );
+        setReviewWarning(
+          result.notificationError ??
+            "The decision was saved, but the notification email could not be sent.",
+        );
+      } else {
+        setReviewMessage(
+          decision === "approved"
+            ? "Access request approved. An email was sent with the password link."
+            : "Access request declined. A notification email was sent.",
+        );
+      }
+
+      setRefreshKey((current) => current + 1);
+    } catch (reviewActionError) {
+      setReviewError(
+        reviewActionError instanceof Error
+          ? reviewActionError.message
+          : "Unable to review this request.",
+      );
+    } finally {
+      setReviewingRequestId("");
+    }
+  }
 
   const items = dashboard?.items ?? [];
   const allowedTeams = dashboard?.allowedTeams ?? [];
   const assignedNest = dashboard?.assignedNest;
   const availableNests = dashboard?.availableNests ?? [];
+  const pendingAccessRequests = dashboard?.pendingAccessRequests ?? [];
 
   const categoryOptions = useMemo(
     () =>
-      [
-        ...new Set(
-          items.map((item) => item.category || "Unassigned"),
-        ),
-      ].sort(),
+      [...new Set(items.map((item) => item.category || "Unassigned"))].sort(),
     [items],
   );
 
@@ -151,9 +223,7 @@ export default function NestLeadDashboardPage() {
     const query = search.trim().toLowerCase();
 
     return items.filter((item) => {
-      const matchesTeam =
-        teamFilter === "all" || item.team === teamFilter;
-
+      const matchesTeam = teamFilter === "all" || item.team === teamFilter;
       const itemCategory = item.category || "Unassigned";
       const matchesCategory =
         !categoryFilter || itemCategory === categoryFilter;
@@ -227,6 +297,9 @@ export default function NestLeadDashboardPage() {
                   setSelectedNestId(event.target.value);
                   setTeamFilter("all");
                   setCategoryFilter("");
+                  setReviewError("");
+                  setReviewWarning("");
+                  setReviewMessage("");
                 }}
                 className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700"
               >
@@ -319,6 +392,146 @@ export default function NestLeadDashboardPage() {
           />
         </section>
 
+        <section
+          aria-label="Access requests"
+          className="mt-8 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+        >
+          <div className="flex flex-col gap-2 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                Access management
+              </p>
+              <h2 className="mt-1 text-lg font-semibold">
+                Pending Quartermaster requests
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Requests for {assignedNest?.code ?? "the selected nest"} appear
+                here for review.
+              </p>
+            </div>
+
+            <span className="w-fit rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-800">
+              {pendingAccessRequests.length} pending
+            </span>
+          </div>
+
+          {reviewError && (
+            <p
+              role="alert"
+              className="border-b border-red-100 bg-red-50 px-5 py-3 text-sm text-red-800"
+            >
+              {reviewError}
+            </p>
+          )}
+
+          {reviewMessage && (
+            <p
+              role="status"
+              className="border-b border-emerald-100 bg-emerald-50 px-5 py-3 text-sm text-emerald-800"
+            >
+              {reviewMessage}
+            </p>
+          )}
+
+          {reviewWarning && (
+            <p
+              role="alert"
+              className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900"
+            >
+              {reviewWarning}
+            </p>
+          )}
+
+          {loading && !dashboard ? (
+            <div className="px-5 py-10 text-center text-sm text-slate-500">
+              Loading access requests…
+            </div>
+          ) : pendingAccessRequests.length === 0 ? (
+            <div className="px-5 py-10 text-center">
+              <p className="text-sm font-medium text-slate-700">
+                No pending requests for this nest.
+              </p>
+              <p className="mt-1 text-sm text-slate-500">
+                New Quartermaster requests will appear here.
+              </p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {pendingAccessRequests.map((accessRequest) => {
+                const isReviewing =
+                  reviewingRequestId === accessRequest.id;
+
+                return (
+                  <li key={accessRequest.id} className="p-5">
+                    <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="font-semibold text-slate-900">
+                            {accessRequest.requesterName || "Name not provided"}
+                          </h3>
+
+                          {accessRequest.team &&
+                            (
+                              [
+                                "flight",
+                                "fulfilment",
+                                "facilities",
+                              ] as const
+                            ).includes(accessRequest.team as Team) && (
+                              <span
+                                className={`rounded-full px-2.5 py-1 text-xs font-medium ${teamStyle(
+                                  accessRequest.team as Team,
+                                )}`}
+                              >
+                                {teamLabels[accessRequest.team as Team]}
+                              </span>
+                            )}
+                        </div>
+
+                        <p className="mt-1 text-sm text-slate-600">
+                          {accessRequest.requesterEmail}
+                        </p>
+
+                        <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                          {accessRequest.reason}
+                        </p>
+
+                        <p className="mt-3 text-xs text-slate-400">
+                          Submitted {formatUpdatedAt(accessRequest.createdAt)}
+                        </p>
+                      </div>
+
+                      <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+                        <button
+                          type="button"
+                          disabled={Boolean(reviewingRequestId)}
+                          onClick={() =>
+                            void handleReview(accessRequest.id, "declined")
+                          }
+                          className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isReviewing ? "Saving…" : "Decline"}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={Boolean(reviewingRequestId)}
+                          onClick={() =>
+                            void handleReview(accessRequest.id, "approved")
+                          }
+                          className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isReviewing ? "Saving…" : "Approve"}
+                        </button>
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
         <section className="mt-9">
           <div className="mb-4">
             <h2 className="text-lg font-semibold">Inventory by team</h2>
@@ -329,54 +542,60 @@ export default function NestLeadDashboardPage() {
           </div>
 
           <div className="grid gap-3 lg:grid-cols-3">
-            {teamSummaries.map(({ team, catalogCount, trackedCount: teamTrackedCount }) => {
-              const selected = teamFilter === team;
+            {teamSummaries.map(
+              ({ team, catalogCount, trackedCount: teamTrackedCount }) => {
+                const selected = teamFilter === team;
 
-              return (
-                <button
-                  key={team}
-                  type="button"
-                  onClick={() => {
-                    setTeamFilter(selected ? "all" : team);
-                    setCategoryFilter("");
-                  }}
-                  aria-pressed={selected}
-                  className={`rounded-xl border bg-white p-4 text-left transition ${
-                    selected
-                      ? "border-emerald-500 ring-2 ring-emerald-100"
-                      : "border-slate-200 hover:border-emerald-300"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="font-semibold">{teamLabels[team]}</h3>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {catalogCount} catalog{" "}
-                        {catalogCount === 1 ? "item" : "items"}
-                      </p>
+                return (
+                  <button
+                    key={team}
+                    type="button"
+                    onClick={() => {
+                      setTeamFilter(selected ? "all" : team);
+                      setCategoryFilter("");
+                    }}
+                    aria-pressed={selected}
+                    className={`rounded-xl border bg-white p-4 text-left transition ${
+                      selected
+                        ? "border-emerald-500 ring-2 ring-emerald-100"
+                        : "border-slate-200 hover:border-emerald-300"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-semibold">{teamLabels[team]}</h3>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {catalogCount} catalog{" "}
+                          {catalogCount === 1 ? "item" : "items"}
+                        </p>
+                      </div>
+                      <span
+                        className={`flex h-10 w-10 items-center justify-center rounded-lg text-lg ${teamStyle(
+                          team,
+                        )}`}
+                      >
+                        {teamIcon(team)}
+                      </span>
                     </div>
-                    <span
-                      className={`flex h-10 w-10 items-center justify-center rounded-lg text-lg ${teamStyle(team)}`}
-                    >
-                      {teamIcon(team)}
-                    </span>
-                  </div>
 
-                  <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
-                    <span className="text-xs text-slate-500">
-                      Tracked at {assignedNest?.code ?? "nest"}
-                    </span>
-                    <span className="text-sm font-semibold text-slate-800">
-                      {teamTrackedCount} / {catalogCount}
-                    </span>
-                  </div>
+                    <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
+                      <span className="text-xs text-slate-500">
+                        Tracked at {assignedNest?.code ?? "nest"}
+                      </span>
+                      <span className="text-sm font-semibold text-slate-800">
+                        {teamTrackedCount} / {catalogCount}
+                      </span>
+                    </div>
 
-                  <span className="mt-3 block text-xs font-semibold text-emerald-700">
-                    {selected ? "Showing this team" : `View ${teamLabels[team]}`}
-                  </span>
-                </button>
-              );
-            })}
+                    <span className="mt-3 block text-xs font-semibold text-emerald-700">
+                      {selected
+                        ? "Showing this team"
+                        : `View ${teamLabels[team]}`}
+                    </span>
+                  </button>
+                );
+              },
+            )}
           </div>
         </section>
 
@@ -385,9 +604,7 @@ export default function NestLeadDashboardPage() {
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
                 {assignedNest?.code ?? "Assigned nest"}
-                {teamFilter !== "all"
-                  ? ` · ${teamLabels[teamFilter]}`
-                  : ""}
+                {teamFilter !== "all" ? ` · ${teamLabels[teamFilter]}` : ""}
               </p>
               <h2 className="mt-1 text-lg font-semibold">
                 Catalog and nest stock
@@ -400,7 +617,9 @@ export default function NestLeadDashboardPage() {
 
             <div className="mt-4 grid gap-3 md:grid-cols-[minmax(220px,1fr)_200px_220px]">
               <label className="flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-3 text-slate-400">
-                <span aria-hidden="true" className="text-lg">⌕</span>
+                <span aria-hidden="true" className="text-lg">
+                  ⌕
+                </span>
                 <input
                   type="search"
                   value={search}

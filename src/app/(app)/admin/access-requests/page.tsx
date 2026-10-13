@@ -3,17 +3,23 @@
 import { useCallback, useEffect, useState } from "react";
 
 type AccessRequest = {
-  request_id: string;
-  user_id: string | null;
-  requester_name: string | null;
-  requester_email: string | null;
-  requested_role: string;
-  requested_country: string | null;
-  requested_nest_id: number | null;
-  requested_team: string | null;
+  id: string;
+  requesterName: string;
+  requesterEmail: string;
+  role: string;
+  country: string | null;
+  nestId: string;
+  team: string | null;
   reason: string;
-  status: string;
-  created_at: string;
+  createdAt: string;
+};
+
+type ReviewResult = {
+  success?: boolean;
+  decision?: "approved" | "declined";
+  notificationSent?: boolean;
+  notificationError?: string;
+  error?: string;
 };
 
 function formatRole(role: string) {
@@ -23,6 +29,19 @@ function formatRole(role: string) {
     .join(" ");
 }
 
+function formatDate(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Unknown date";
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
 export default function AccessRequestsPage() {
   const [requests, setRequests] = useState<AccessRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,15 +49,17 @@ export default function AccessRequestsPage() {
   const [busyRequestId, setBusyRequestId] = useState("");
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
+  const [messageIsError, setMessageIsError] = useState(false);
 
   const loadRequests = useCallback(async () => {
     setLoading(true);
     setLoadError("");
 
     try {
-      const response = await fetch("/api/management/access-requests", {
+      const response = await fetch("/api/access-requests/review", {
         cache: "no-store",
       });
+
       const result = (await response.json()) as {
         requests?: AccessRequest[];
         error?: string;
@@ -66,40 +87,44 @@ export default function AccessRequestsPage() {
 
   async function reviewRequest(
     accessRequest: AccessRequest,
-    decision: "approve" | "reject",
+    decision: "approved" | "declined",
   ) {
-    setBusyRequestId(accessRequest.request_id);
+    setBusyRequestId(accessRequest.id);
     setMessage("");
+    setMessageIsError(false);
     setLoadError("");
 
     try {
-      const response = await fetch("/api/management/access-requests", {
+      const response = await fetch("/api/access-requests/review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          requestId: accessRequest.request_id,
+          requestId: accessRequest.id,
           decision,
-          reviewNote: reviewNotes[accessRequest.request_id] ?? "",
+          reviewNote: reviewNotes[accessRequest.id] ?? "",
         }),
       });
 
-      const result = (await response.json()) as {
-        error?: string;
-        invitationSent?: boolean;
-      };
+      const result = (await response.json()) as ReviewResult;
 
       if (!response.ok) {
         throw new Error(result.error ?? "Could not update this request.");
       }
 
-      if (decision === "approve") {
+      if (decision === "approved") {
         setMessage(
-          result.invitationSent
-            ? `Access granted. An invitation was sent to ${accessRequest.requester_email}.`
-            : "Access granted to the existing account.",
+          `Access approved. The password setup email was sent to ${accessRequest.requesterEmail}.`,
+        );
+      } else if (result.notificationSent) {
+        setMessage(
+          `The request was declined and an email was sent to ${accessRequest.requesterEmail}.`,
         );
       } else {
-        setMessage("The access request was rejected.");
+        setMessage(
+          result.notificationError ??
+            "The request was declined, but the email could not be sent. Check the Resend settings.",
+        );
+        setMessageIsError(true);
       }
 
       await loadRequests();
@@ -125,8 +150,7 @@ export default function AccessRequestsPage() {
             Access requests
           </h1>
           <p className="mt-2 text-sm text-gray-600">
-            Review requests for the countries and nests you are authorized to
-            manage.
+            Review pending requests and grant access to approved users.
           </p>
         </div>
 
@@ -142,8 +166,12 @@ export default function AccessRequestsPage() {
 
       {message && (
         <p
-          role="status"
-          className="mt-5 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"
+          role={messageIsError ? "alert" : "status"}
+          className={`mt-5 rounded-lg border p-3 text-sm ${
+            messageIsError
+              ? "border-amber-200 bg-amber-50 text-amber-800"
+              : "border-emerald-200 bg-emerald-50 text-emerald-800"
+          }`}
         >
           {message}
         </p>
@@ -164,30 +192,30 @@ export default function AccessRequestsPage() {
         </p>
       ) : requests.length === 0 ? (
         <p className="mt-8 rounded-xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
-          There are no pending requests in your assigned scope.
+          There are no pending access requests.
         </p>
       ) : (
         <div className="mt-7 space-y-5">
           {requests.map((accessRequest) => {
-            const isBusy = busyRequestId === accessRequest.request_id;
+            const isBusy = busyRequestId === accessRequest.id;
 
             return (
               <article
-                key={accessRequest.request_id}
+                key={accessRequest.id}
                 className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6"
               >
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <h2 className="text-lg font-semibold text-gray-900">
-                      {accessRequest.requester_name || "Name not provided"}
+                      {accessRequest.requesterName || "Name not provided"}
                     </h2>
                     <p className="mt-1 text-sm text-gray-600">
-                      {accessRequest.requester_email || "Email not provided"}
+                      {accessRequest.requesterEmail || "Email not provided"}
                     </p>
                   </div>
 
                   <span className="w-fit rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
-                    {formatRole(accessRequest.requested_role)}
+                    {formatRole(accessRequest.role)}
                   </span>
                 </div>
 
@@ -195,15 +223,15 @@ export default function AccessRequestsPage() {
                   <div>
                     <dt className="text-gray-500">Country</dt>
                     <dd className="mt-1 font-medium text-gray-900">
-                      {accessRequest.requested_country || "—"}
+                      {accessRequest.country || "—"}
                     </dd>
                   </div>
 
                   <div>
                     <dt className="text-gray-500">Nest</dt>
                     <dd className="mt-1 font-medium text-gray-900">
-                      {accessRequest.requested_nest_id
-                        ? `Nest ID ${accessRequest.requested_nest_id}`
+                      {accessRequest.nestId
+                        ? `Nest ID ${accessRequest.nestId}`
                         : "Country-wide"}
                     </dd>
                   </div>
@@ -211,7 +239,7 @@ export default function AccessRequestsPage() {
                   <div>
                     <dt className="text-gray-500">Team</dt>
                     <dd className="mt-1 font-medium capitalize text-gray-900">
-                      {accessRequest.requested_team || "—"}
+                      {accessRequest.team || "—"}
                     </dd>
                   </div>
                 </dl>
@@ -226,8 +254,7 @@ export default function AccessRequestsPage() {
                 </div>
 
                 <p className="mt-4 text-xs text-gray-500">
-                  Submitted{" "}
-                  {new Date(accessRequest.created_at).toLocaleString()}
+                  Submitted {formatDate(accessRequest.createdAt)}
                 </p>
 
                 <label className="mt-5 block text-sm font-medium text-gray-700">
@@ -235,11 +262,11 @@ export default function AccessRequestsPage() {
                   <textarea
                     rows={2}
                     maxLength={1000}
-                    value={reviewNotes[accessRequest.request_id] ?? ""}
+                    value={reviewNotes[accessRequest.id] ?? ""}
                     onChange={(event) =>
                       setReviewNotes((current) => ({
                         ...current,
-                        [accessRequest.request_id]: event.target.value,
+                        [accessRequest.id]: event.target.value,
                       }))
                     }
                     className="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2"
@@ -251,16 +278,20 @@ export default function AccessRequestsPage() {
                   <button
                     type="button"
                     disabled={isBusy}
-                    onClick={() => void reviewRequest(accessRequest, "reject")}
+                    onClick={() =>
+                      void reviewRequest(accessRequest, "declined")
+                    }
                     className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
                   >
-                    {isBusy ? "Saving…" : "Reject"}
+                    {isBusy ? "Saving…" : "Decline"}
                   </button>
 
                   <button
                     type="button"
                     disabled={isBusy}
-                    onClick={() => void reviewRequest(accessRequest, "approve")}
+                    onClick={() =>
+                      void reviewRequest(accessRequest, "approved")
+                    }
                     className="rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"
                   >
                     {isBusy ? "Saving…" : "Approve and grant access"}

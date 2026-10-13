@@ -1,21 +1,50 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 export default function SetPasswordPage() {
   const router = useRouter();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const [hasSession, setHasSession] = useState(false);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  useEffect(() => {
+    let mounted = true;
+
+    async function checkSession() {
+      const { data, error } = await supabase.auth.getUser();
+
+      if (!mounted) return;
+
+      setHasSession(!error && Boolean(data.user));
+      setIsCheckingSession(false);
+    }
+
+    void checkSession();
+
+    return () => {
+      mounted = false;
+    };
+  }, [supabase]);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErrorMessage("");
+
+    if (!hasSession) {
+      setErrorMessage(
+        "This password link is no longer valid. Ask your administrator to send a new one.",
+      );
+      return;
+    }
 
     if (password.length < 8) {
       setErrorMessage("Use a password with at least 8 characters.");
@@ -40,6 +69,36 @@ export default function SetPasswordPage() {
     await supabase.auth.signOut();
     router.replace("/login?password_updated=1");
     router.refresh();
+  }
+
+  if (isCheckingSession) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+        <p className="text-sm text-slate-600">Checking your password link…</p>
+      </main>
+    );
+  }
+
+  if (!hasSession) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+        <section className="w-full max-w-md space-y-4 rounded-xl bg-white p-8 shadow">
+          <h1 className="text-2xl font-semibold text-slate-900">
+            Password link unavailable
+          </h1>
+          <p className="text-sm text-slate-600">
+            This link may have expired or already been used. Ask your
+            administrator to send you a new one.
+          </p>
+          <Link
+            href="/login"
+            className="inline-block rounded-md bg-emerald-700 px-4 py-2 font-medium text-white"
+          >
+            Go to sign in
+          </Link>
+        </section>
+      </main>
+    );
   }
 
   return (

@@ -1,6 +1,3 @@
-//leads dahboard
-
-
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -191,9 +188,7 @@ export async function GET(request: Request) {
 
     const { data: itemRows, error: itemError } = await supabase
       .from("app_items")
-      .select(
-        "item_id, item_code, product_name, team, subcategory, unit",
-      )
+      .select("item_id, item_code, product_name, team, subcategory, unit")
       .eq("country", selectedNest.country)
       .eq("is_active", true)
       .in("team", allowedTeams)
@@ -236,6 +231,21 @@ export async function GET(request: Request) {
       );
     });
 
+    // RLS limits this query to requests the signed-in user can review.
+    // This dashboard queue shows pending Quartermaster requests for the
+    // currently selected nest.
+    const { data: requestRows, error: requestError } = await supabase
+      .from("app_access_requests")
+      .select(
+        "request_id, requester_name, requester_email, requested_role, requested_country, requested_nest_id, requested_team, reason, created_at",
+      )
+      .eq("status", "pending")
+      .eq("requested_role", "quartermaster")
+      .eq("requested_nest_id", selectedNest.nest_id)
+      .order("created_at", { ascending: true });
+
+    if (requestError) throw new Error(requestError.message);
+
     return NextResponse.json(
       {
         availableNests: nestOptions.map((nest) => ({
@@ -270,6 +280,20 @@ export async function GET(request: Request) {
             stockUpdatedAt: stock?.updated_at ?? null,
           };
         }),
+        pendingAccessRequests: (requestRows ?? []).map((row) => ({
+          id: row.request_id,
+          requesterName: row.requester_name ?? "",
+          requesterEmail: row.requester_email ?? "",
+          role: row.requested_role,
+          country: row.requested_country,
+          nestId:
+            row.requested_nest_id === null
+              ? ""
+              : String(row.requested_nest_id),
+          team: row.requested_team,
+          reason: row.reason,
+          createdAt: row.created_at,
+        })),
       },
       { headers: { "Cache-Control": "no-store" } },
     );

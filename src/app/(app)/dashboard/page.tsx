@@ -108,71 +108,94 @@ export default async function DashboardPage({
       </div>
 
       {isAdmin && (
-        <section className="mt-8 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-900">
-            Select a country
-          </h2>
-          <p className="mt-1 text-sm text-gray-600">
-            Choose a country to open its dashboards and production nests.
-          </p>
+        <>
+          <section className="mt-8 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+            <h2 className="text-lg font-semibold text-gray-900">
+              Select a country
+            </h2>
+            <p className="mt-1 text-sm text-gray-600">
+              Choose a country to open its dashboards and production nests.
+            </p>
 
-          <form
-            action="/dashboard"
-            method="get"
-            className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end"
-          >
-            <div className="w-full sm:max-w-sm">
-              <label
-                htmlFor="country"
-                className="mb-1 block text-sm font-medium text-gray-700"
-              >
-                Country
-              </label>
-              <select
-                id="country"
-                name="country"
-                defaultValue={selectedCountry}
-                required
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600"
-              >
-                <option value="" disabled>
-                  Select a country
-                </option>
-                {countries.map((country) => (
-                  <option key={country} value={country}>
-                    {countryNames[country] ?? country}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <button
-              type="submit"
-              disabled={Boolean(countryLoadError) || countries.length === 0}
-              className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+            <form
+              action="/dashboard"
+              method="get"
+              className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end"
             >
-              Show dashboards
-            </button>
-          </form>
+              <div className="w-full sm:max-w-sm">
+                <label
+                  htmlFor="country"
+                  className="mb-1 block text-sm font-medium text-gray-700"
+                >
+                  Country
+                </label>
+                <select
+                  id="country"
+                  name="country"
+                  defaultValue={selectedCountry}
+                  required
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                >
+                  <option value="" disabled>
+                    Select a country
+                  </option>
+                  {countries.map((country) => (
+                    <option key={country} value={country}>
+                      {countryNames[country] ?? country}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-          {countryLoadError && (
-            <p role="alert" className="mt-3 text-sm text-red-700">
-              {countryLoadError}
-            </p>
-          )}
+              <button
+                type="submit"
+                disabled={Boolean(countryLoadError) || countries.length === 0}
+                className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Show dashboards
+              </button>
+            </form>
 
-          {!countryLoadError && countries.length === 0 && (
-            <p className="mt-3 text-sm text-gray-600">
-              No production countries were found.
-            </p>
-          )}
+            {countryLoadError && (
+              <p role="alert" className="mt-3 text-sm text-red-700">
+                {countryLoadError}
+              </p>
+            )}
 
-          {selectedCountry && (
-            <p className="mt-3 text-sm text-emerald-800">
-              Showing dashboard links for {countryLabel}.
-            </p>
-          )}
-        </section>
+            {!countryLoadError && countries.length === 0 && (
+              <p className="mt-3 text-sm text-gray-600">
+                No production countries were found.
+              </p>
+            )}
+
+            {selectedCountry && (
+              <p className="mt-3 text-sm text-emerald-800">
+                Showing dashboard links for {countryLabel}.
+              </p>
+            )}
+          </section>
+
+          <section className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Access management
+                </h2>
+                <p className="mt-1 text-sm text-gray-600">
+                  Review pending account requests and grant approved users
+                  access.
+                </p>
+              </div>
+
+              <Link
+                href="/admin/access-requests"
+                className="inline-flex w-fit items-center rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2"
+              >
+                Review access requests
+              </Link>
+            </div>
+          </section>
+        </>
       )}
 
       {(!isAdmin || selectedCountry) && (
@@ -200,11 +223,14 @@ export default async function DashboardPage({
         </section>
       )}
 
-      {isAdmin && !selectedCountry && !countryLoadError && countries.length > 0 && (
-        <p className="mt-6 text-sm text-gray-600">
-          Select a country above to see its dashboard links.
-        </p>
-      )}
+      {isAdmin &&
+        !selectedCountry &&
+        !countryLoadError &&
+        countries.length > 0 && (
+          <p className="mt-6 text-sm text-gray-600">
+            Select a country above to see its operational dashboards.
+          </p>
+        )}
     </div>
   );
 }
