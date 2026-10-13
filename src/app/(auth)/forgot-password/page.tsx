@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 
 export default function ForgotPasswordPage() {
   const supabase = createClient();
+
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -14,24 +15,49 @@ export default function ForgotPasswordPage() {
     event.preventDefault();
     setMessage("");
     setErrorMessage("");
-    setIsSubmitting(true);
 
-    const redirectTo = `${window.location.origin}/auth/confirm?next=/set-password`;
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo,
-    });
-
-    setIsSubmitting(false);
-
-    if (error) {
-      setErrorMessage(error.message);
+    if (!appUrl) {
+      setErrorMessage(
+        "Password reset is not configured. Please contact your administrator.",
+      );
       return;
     }
 
-    setMessage(
-      "If an account exists for that email, a password reset link has been sent.",
-    );
+    let redirectTo: URL;
+
+    try {
+      redirectTo = new URL("/auth/confirm", `${appUrl.replace(/\/+$/, "")}/`);
+    } catch {
+      setErrorMessage(
+        "The password reset URL is not configured correctly. Please contact your administrator.",
+      );
+      return;
+    }
+
+    redirectTo.searchParams.set("next", "/set-password");
+    setIsSubmitting(true);
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(
+        email.trim().toLowerCase(),
+        { redirectTo: redirectTo.toString() },
+      );
+
+      if (error) {
+        setErrorMessage(error.message);
+        return;
+      }
+
+      setMessage(
+        "If an account exists for that email, a password reset link has been sent.",
+      );
+    } catch {
+      setErrorMessage("Could not send the reset link. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
