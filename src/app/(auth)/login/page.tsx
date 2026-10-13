@@ -1,15 +1,16 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
-  const supabase = createClient();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -18,20 +19,25 @@ export default function LoginPage() {
     setErrorMessage("");
     setIsSubmitting(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password,
+      });
 
-    setIsSubmitting(false);
+      if (error) {
+        setErrorMessage("Sign-in failed. Check your email and password.");
+        return;
+      }
 
-    if (error) {
-      setErrorMessage("Sign-in failed. Check your email and password.");
-      return;
+      router.replace("/dashboard");
+      router.refresh();
+    } catch {
+      setErrorMessage("Unable to sign in right now. Please try again.");
+    } finally {
+      setIsSubmitting(false);
     }
-
-    router.replace("/dashboard");
-    router.refresh();
   }
 
   return (
@@ -41,9 +47,7 @@ export default function LoginPage() {
         className="w-full max-w-md space-y-5 rounded-xl bg-white p-8 shadow"
       >
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">
-            Sign in
-          </h1>
+          <h1 className="text-2xl font-semibold text-slate-900">Sign in</h1>
           <p className="mt-1 text-sm text-slate-600">
             Use the account provided by your administrator.
           </p>
@@ -68,21 +72,41 @@ export default function LoginPage() {
         </div>
 
         <div>
-          <label
-            htmlFor="password"
-            className="mb-1 block text-sm font-medium text-slate-700"
-          >
-            Password
-          </label>
-          <input
-            id="password"
-            type="password"
-            autoComplete="current-password"
-            required
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-emerald-600"
-          />
+          <div className="mb-1 flex items-center justify-between">
+            <label
+              htmlFor="password"
+              className="block text-sm font-medium text-slate-700"
+            >
+              Password
+            </label>
+            <Link
+              href="/forgot-password"
+              className="text-sm font-medium text-emerald-700 hover:text-emerald-800"
+            >
+              Forgot password?
+            </Link>
+          </div>
+
+          <div className="relative">
+            <input
+              id="password"
+              type={showPassword ? "text" : "password"}
+              autoComplete="current-password"
+              required
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              className="w-full rounded-md border border-slate-300 px-3 py-2 pr-20 outline-none focus:border-emerald-600"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((current) => !current)}
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              aria-pressed={showPassword}
+              className="absolute inset-y-0 right-3 text-sm font-medium text-gray-600 hover:text-gray-900"
+            >
+              {showPassword ? "Hide" : "Show"}
+            </button>
+          </div>
         </div>
 
         {errorMessage && (
