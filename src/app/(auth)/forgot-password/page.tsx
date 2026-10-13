@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 export default function ForgotPasswordPage() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
@@ -28,9 +28,10 @@ export default function ForgotPasswordPage() {
     let redirectTo: URL;
 
     try {
+      const normalizedAppUrl = appUrl.replace(/\/+$/, "");
       redirectTo = new URL(
-        "/auth/recovery",
-        `${appUrl.replace(/\/+$/, "")}/`,
+        "/auth/confirm?next=%2Fset-password",
+        `${normalizedAppUrl}/`,
       );
     } catch {
       setErrorMessage(

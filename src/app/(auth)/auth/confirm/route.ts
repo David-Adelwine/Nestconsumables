@@ -11,17 +11,25 @@ const allowedTypes: EmailOtpType[] = [
   "email",
 ];
 
+function getSafeDestination(next: string | null): string {
+  if (
+    next &&
+    next.startsWith("/") &&
+    !next.startsWith("//") &&
+    !next.includes("\\")
+  ) {
+    return next;
+  }
+
+  return "/set-password";
+}
+
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const tokenHash = url.searchParams.get("token_hash");
   const type = url.searchParams.get("type");
-
-  const next = url.searchParams.get("next");
-  const destination =
-    next && next.startsWith("/") && !next.startsWith("//")
-      ? next
-      : "/set-password";
+  const destination = getSafeDestination(url.searchParams.get("next"));
 
   const supabase = await createClient();
   let callbackError: string | null = null;
@@ -45,6 +53,15 @@ export async function GET(request: NextRequest) {
 
   if (callbackError) {
     console.error("Auth confirmation failed:", callbackError);
+
+    // Keep reset failures on the password page so the user sees its
+    // expired or unavailable link message instead of being sent to login.
+    if (destination.startsWith("/set-password")) {
+      return NextResponse.redirect(
+        new URL("/set-password?reset_link=invalid", url.origin),
+      );
+    }
+
     return NextResponse.redirect(
       new URL("/login?error=confirmation_failed", url.origin),
     );
