@@ -114,9 +114,7 @@ async function getActor(): Promise<Actor | null> {
     userId,
     roles,
     countries: (countryRows ?? []).map((row) => String(row.country)),
-    nests: [
-      ...new Set((nestRows ?? []).map((row) => Number(row.nest_id))),
-    ],
+    nests: [...new Set((nestRows ?? []).map((row) => Number(row.nest_id)))],
   };
 }
 
@@ -452,11 +450,13 @@ export async function POST(request: NextRequest) {
     let invitationSent = false;
 
     if (!authUser) {
-      const redirectTo = new URL("/auth/confirm", request.url).toString();
+      const redirectTo = new URL("/auth/confirm", request.url);
+      redirectTo.searchParams.set("next", "/set-password");
+
       const { data: inviteData, error: inviteError } =
         await admin.auth.admin.inviteUserByEmail(email, {
           data: { full_name: row.requester_name },
-          redirectTo,
+          redirectTo: redirectTo.toString(),
         });
 
       if (inviteError || !inviteData.user) {
