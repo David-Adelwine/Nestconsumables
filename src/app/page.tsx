@@ -14,7 +14,7 @@ type RequestedRole = "procurement" | "nest_lead" | "quartermaster";
 type RequestedTeam = "flight" | "fulfilment" | "facilities";
 
 const inputClassName =
-  "mt-2 block min-h-12 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-emerald-600 focus:ring-4 focus:ring-emerald-600/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500";
+  "mt-2 block min-h-12 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-violet-600 focus:ring-4 focus:ring-violet-600/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500";
 
 const features = [
   {
@@ -177,13 +177,13 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f4f7f6] text-slate-950">
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_top_left,rgba(16,125,87,0.09),transparent_38%),radial-gradient(ellipse_at_bottom_right,rgba(15,23,42,0.04),transparent_35%)]" />
+    <main className="min-h-screen bg-[#f7f5fb] text-slate-950">
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_top_left,rgba(109,40,217,0.09),transparent_38%),radial-gradient(ellipse_at_bottom_right,rgba(15,23,42,0.04),transparent_35%)]" />
 
       <header className="relative border-b border-slate-200/80 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8">
           <Link href="/" className="group flex items-center gap-3.5">
-            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-800 text-lg font-bold text-white shadow-lg shadow-emerald-900/15 transition group-hover:bg-emerald-900">
+            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-violet-800 text-lg font-bold text-white shadow-lg shadow-violet-900/15 transition group-hover:bg-violet-900">
               N
             </span>
             <span>
@@ -198,7 +198,7 @@ export default function Home() {
 
           <Link
             href="/login"
-            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-emerald-600/10"
+            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-violet-600/10"
           >
             Sign in <span aria-hidden="true" className="ml-2">→</span>
           </Link>
@@ -207,8 +207,8 @@ export default function Home() {
 
       <section className="relative mx-auto grid max-w-7xl items-start gap-8 px-5 py-9 sm:px-8 sm:py-14 lg:grid-cols-[1fr_0.88fr] lg:gap-12 lg:py-16">
         <div className="lg:sticky lg:top-10">
-          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white/80 px-3.5 py-2 text-xs font-bold uppercase tracking-[0.14em] text-emerald-800 shadow-sm">
-            <span className="h-2 w-2 rounded-full bg-emerald-600" />
+          <div className="inline-flex items-center gap-2 rounded-full border border-violet-200 bg-white/80 px-3.5 py-2 text-xs font-bold uppercase tracking-[0.14em] text-violet-800 shadow-sm">
+            <span className="h-2 w-2 rounded-full bg-violet-600" />
             Operations workspace
           </div>
 
@@ -224,7 +224,7 @@ export default function Home() {
           <div className="mt-8 flex flex-wrap gap-3">
             <a
               href="#request-access"
-              className="inline-flex min-h-12 items-center justify-center rounded-xl bg-emerald-800 px-5 text-sm font-semibold text-white shadow-lg shadow-emerald-900/15 transition hover:bg-emerald-900 focus:outline-none focus:ring-4 focus:ring-emerald-700/20"
+              className="inline-flex min-h-12 items-center justify-center rounded-xl bg-violet-800 px-5 text-sm font-semibold text-white shadow-lg shadow-violet-900/15 transition hover:bg-violet-900 focus:outline-none focus:ring-4 focus:ring-violet-700/20"
             >
               Request workspace access{" "}
               <span aria-hidden="true" className="ml-2">→</span>
@@ -238,15 +238,15 @@ export default function Home() {
             {features.map((feature) => (
               <article
                 key={feature.number}
-                className="group rounded-2xl border border-slate-200/90 bg-white/90 p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md"
+                className="group rounded-2xl border border-slate-200/90 bg-white/90 p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md"
               >
                 <div className="flex items-center justify-between">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-xs font-bold text-emerald-800 ring-1 ring-emerald-100">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50 text-xs font-bold text-violet-800 ring-1 ring-violet-100">
                     {feature.number}
                   </span>
                   <span
                     aria-hidden="true"
-                    className="text-emerald-700 opacity-60 transition group-hover:translate-x-1 group-hover:opacity-100"
+                    className="text-violet-700 opacity-60 transition group-hover:translate-x-1 group-hover:opacity-100"
                   >
                     ↗
                   </span>
@@ -265,7 +265,7 @@ export default function Home() {
             <svg
               aria-hidden="true"
               viewBox="0 0 20 20"
-              className="h-4 w-4 text-emerald-700"
+              className="h-4 w-4 text-violet-700"
               fill="currentColor"
             >
               <path
@@ -282,16 +282,16 @@ export default function Home() {
           id="request-access"
           className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-[0_24px_80px_-36px_rgba(15,23,42,0.28)]"
         >
-          <div className="border-b border-emerald-900/10 bg-gradient-to-br from-emerald-900 via-emerald-800 to-teal-800 px-6 py-6 text-white sm:px-8 sm:py-7">
+          <div className="border-b border-violet-900/10 bg-gradient-to-br from-violet-900 via-violet-800 to-purple-800 px-6 py-6 text-white sm:px-8 sm:py-7">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.17em] text-emerald-100">
+                <p className="text-xs font-bold uppercase tracking-[0.17em] text-violet-100">
                   Get started
                 </p>
                 <h2 className="mt-2 text-2xl font-bold tracking-tight sm:text-[1.75rem]">
                   Request access
                 </h2>
-                <p className="mt-2 max-w-md text-sm leading-6 text-emerald-50/90">
+                <p className="mt-2 max-w-md text-sm leading-6 text-violet-50/90">
                   Tell us about your role and the workspace access you need.
                 </p>
               </div>
@@ -313,8 +313,8 @@ export default function Home() {
               </span>
             </div>
 
-            <div className="mt-5 flex items-center gap-2 text-xs font-medium text-emerald-50/90">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-[11px] font-bold text-emerald-900">
+            <div className="mt-5 flex items-center gap-2 text-xs font-medium text-violet-50/90">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-[11px] font-bold text-violet-900">
                 1
               </span>
               <span>Request</span>
@@ -338,7 +338,7 @@ export default function Home() {
 
             {loadingNests ? (
               <div className="flex min-h-52 flex-col items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 px-5 text-center">
-                <span className="h-8 w-8 animate-spin rounded-full border-[3px] border-emerald-700/20 border-t-emerald-700" />
+                <span className="h-8 w-8 animate-spin rounded-full border-[3px] border-violet-700/20 border-t-violet-700" />
                 <p className="mt-4 text-sm font-semibold text-slate-700">
                   Loading available countries and nests
                 </p>
@@ -376,7 +376,7 @@ export default function Home() {
                         setRequesterEmail(event.target.value)
                       }
                       className={inputClassName}
-                      placeholder="you@flyzipline.com"
+                      placeholder="you@company.com"
                     />
                   </label>
                 </div>
@@ -496,7 +496,7 @@ export default function Home() {
                     role={isSuccess ? "status" : "alert"}
                     className={`rounded-xl border px-4 py-3 text-sm font-medium ${
                       isSuccess
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                        ? "border-violet-200 bg-violet-50 text-violet-800"
                         : "border-red-200 bg-red-50 text-red-800"
                     }`}
                   >
@@ -509,7 +509,7 @@ export default function Home() {
                   disabled={
                     submitting || nests.length === 0 || Boolean(loadError)
                   }
-                  className="inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-emerald-800 px-5 text-sm font-bold text-white shadow-lg shadow-emerald-900/15 transition hover:bg-emerald-900 focus:outline-none focus:ring-4 focus:ring-emerald-700/20 disabled:cursor-not-allowed disabled:bg-slate-400 disabled:shadow-none"
+                  className="inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-violet-800 px-5 text-sm font-bold text-white shadow-lg shadow-violet-900/15 transition hover:bg-violet-900 focus:outline-none focus:ring-4 focus:ring-violet-700/20 disabled:cursor-not-allowed disabled:bg-slate-400 disabled:shadow-none"
                 >
                   {submitting ? (
                     <>
