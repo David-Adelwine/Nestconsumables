@@ -45,6 +45,8 @@ type DashboardData = {
   }>;
 };
 
+const ITEMS_PER_PAGE = 40;
+
 const teamLabels: Record<Team, string> = {
   flight: "Flight",
   fulfilment: "Fulfilment",
@@ -70,6 +72,7 @@ export default function ProcurementPage() {
   const [search, setSearch] = useState("");
   const [teamFilter, setTeamFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [catalogPage, setCatalogPage] = useState(1);
   const [orderLines, setOrderLines] = useState<OrderLine[]>([]);
   const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState("");
@@ -151,6 +154,22 @@ export default function ProcurementPage() {
       return matchesTeam && matchesCategory && (!query || text.includes(query));
     });
   }, [items, search, teamFilter, categoryFilter]);
+
+  useEffect(() => {
+    setCatalogPage(1);
+  }, [search, teamFilter, categoryFilter, nestId]);
+
+  const pageCount = Math.max(
+    1,
+    Math.ceil(filteredItems.length / ITEMS_PER_PAGE),
+  );
+  const pageStart = (catalogPage - 1) * ITEMS_PER_PAGE;
+  const pageItems = filteredItems.slice(pageStart, pageStart + ITEMS_PER_PAGE);
+  const firstVisibleItem = filteredItems.length === 0 ? 0 : pageStart + 1;
+  const lastVisibleItem = Math.min(
+    pageStart + ITEMS_PER_PAGE,
+    filteredItems.length,
+  );
 
   const orderTotal = orderLines.reduce(
     (sum, line) =>
@@ -249,17 +268,27 @@ export default function ProcurementPage() {
       code: result.itemCode ?? newItem.code,
       name: newItem.name.trim(),
       team: newItem.team,
-      category: newItem.team === "facilities" ? newItem.category.trim() || "Unassigned" : null,
+      category:
+        newItem.team === "facilities"
+          ? newItem.category.trim() || "Unassigned"
+          : null,
       uom: newItem.unit.trim(),
       unitCost,
       currencyCode: currency,
       quantity: null,
       updatedAt: null,
     };
+
     setOrderLines((current) => [
       ...current.filter((line) => line.itemId !== createdItem.id),
-      { itemId: createdItem.id, item: createdItem, quantity, unitCost: String(unitCost) },
+      {
+        itemId: createdItem.id,
+        item: createdItem,
+        quantity,
+        unitCost: String(unitCost),
+      },
     ]);
+
     setNewItem({
       code: "",
       name: "",
@@ -275,15 +304,20 @@ export default function ProcurementPage() {
 
   async function submitOrder() {
     if (orderLines.length === 0) return;
-    const invalidLine = orderLines.find((line) =>
-      !Number.isInteger(Number(line.quantity)) ||
-      Number(line.quantity) <= 0 ||
-      line.unitCost.trim() === "" ||
-      !Number.isFinite(Number(line.unitCost)) ||
-      Number(line.unitCost) < 0,
+
+    const invalidLine = orderLines.find(
+      (line) =>
+        !Number.isInteger(Number(line.quantity)) ||
+        Number(line.quantity) <= 0 ||
+        line.unitCost.trim() === "" ||
+        !Number.isFinite(Number(line.unitCost)) ||
+        Number(line.unitCost) < 0,
     );
+
     if (invalidLine) {
-      setNotice(`Enter a valid quantity and purchase price for ${invalidLine.item.name}.`);
+      setNotice(
+        `Enter a valid quantity and purchase price for ${invalidLine.item.name}.`,
+      );
       return;
     }
 
@@ -309,7 +343,9 @@ export default function ProcurementPage() {
       return;
     }
 
-    setNotice(`${result.purchase.reference} was submitted for Quartermaster receipt acknowledgment.`);
+    setNotice(
+      `${result.purchase.reference} was submitted for Quartermaster receipt acknowledgment.`,
+    );
     setOrderLines([]);
     await load(nestId);
   }
@@ -324,8 +360,8 @@ export default function ProcurementPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <section className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
+    <div className="mx-auto max-w-7xl space-y-7">
+      <section className="flex flex-col justify-between gap-5 rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-white p-6 shadow-sm sm:flex-row sm:items-end">
         <div>
           <p className="text-xs font-semibold tracking-[0.16em] text-emerald-700">
             PROCUREMENT
@@ -334,7 +370,9 @@ export default function ProcurementPage() {
             Purchase for a location
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-gray-500">
-            Search the catalog, add existing or new items to the cart, set purchase quantities and prices, and submit them for receipt at the selected nest.
+            Search the catalog, add existing or new items to the cart, set
+            purchase quantities and prices, and submit them for receipt at the
+            selected nest.
           </p>
         </div>
 
@@ -343,7 +381,7 @@ export default function ProcurementPage() {
           <select
             value={nestId}
             onChange={(event) => changeNest(event.target.value)}
-            className="h-10 min-w-64 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+            className="h-11 min-w-64 rounded-xl border border-gray-300 bg-white px-3 text-sm font-medium text-gray-900 shadow-sm transition focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
           >
             {(data?.nests ?? []).map((nest) => (
               <option key={nest.id} value={nest.id}>
@@ -372,7 +410,7 @@ export default function ProcurementPage() {
         </p>
       )}
 
-      <section className="flex flex-col gap-4 rounded-xl border border-emerald-100 bg-emerald-50/60 p-5 sm:flex-row sm:items-center">
+      <section className="flex flex-col gap-4 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-white p-5 shadow-sm sm:flex-row sm:items-center">
         <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-100 text-xl text-emerald-800">
           ⌖
         </span>
@@ -410,25 +448,31 @@ export default function ProcurementPage() {
         />
       </section>
 
-
       <AccessRequestQueue
-  title="Quartermaster access requests"
-  description="Review Quartermaster requests within your assigned country or nest access."
-/>
+        title="Quartermaster access requests"
+        description="Review Quartermaster requests within your assigned country or nest access."
+      />
 
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(350px,0.85fr)]">
-        <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-          <div className="border-b border-gray-200 p-5">
-            <h2 className="text-base font-semibold text-gray-900">
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,0.85fr)]">
+        <section className="overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-lg shadow-emerald-950/5 ring-1 ring-emerald-50">
+          <div className="border-b border-emerald-100 bg-gradient-to-r from-emerald-50/90 to-white p-6">
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">
+              Item library
+            </p>
+            <h2 className="mt-1 text-xl font-bold tracking-tight text-gray-950">
               Master catalog
             </h2>
             <p className="mt-1 text-sm text-gray-500">
-              Catalog and stock values are loaded from Supabase.
+              Browse all active items, set catalogue prices, and add quantities
+              to the purchase cart for this nest.
+            </p>
+            <p className="mt-3 inline-flex rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-sm">
+              {loading ? "Loading items…" : `${filteredItems.length} catalog items`}
             </p>
 
             <form
               onSubmit={addCatalogItem}
-              className="mt-4 grid gap-2 md:grid-cols-6"
+              className="mt-5 grid gap-3 rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm md:grid-cols-6"
             >
               <input
                 required
@@ -437,7 +481,7 @@ export default function ProcurementPage() {
                 onChange={(event) =>
                   setNewItem({ ...newItem, name: event.target.value })
                 }
-                className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 md:col-span-2 placeholder:text-gray-400 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                className="h-11 rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 md:col-span-2 placeholder:text-gray-500 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
               />
               <input
                 placeholder="Item code (optional)"
@@ -445,7 +489,7 @@ export default function ProcurementPage() {
                 onChange={(event) =>
                   setNewItem({ ...newItem, code: event.target.value })
                 }
-                className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                className="h-11 rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
               />
               <select
                 value={newItem.team}
@@ -455,7 +499,7 @@ export default function ProcurementPage() {
                     team: event.target.value as Team,
                   })
                 }
-                className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                className="h-11 rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
               >
                 <option value="flight">Flight</option>
                 <option value="fulfilment">Fulfilment</option>
@@ -468,7 +512,7 @@ export default function ProcurementPage() {
                 onChange={(event) =>
                   setNewItem({ ...newItem, unit: event.target.value })
                 }
-                className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                className="h-11 rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
               />
               <input
                 required
@@ -480,7 +524,7 @@ export default function ProcurementPage() {
                 onChange={(event) =>
                   setNewItem({ ...newItem, unitCost: event.target.value })
                 }
-                className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                className="h-11 rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
               />
               <input
                 required
@@ -492,7 +536,7 @@ export default function ProcurementPage() {
                 onChange={(event) =>
                   setNewItem({ ...newItem, quantity: event.target.value })
                 }
-                className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                className="h-11 rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
               />
               {newItem.team === "facilities" && (
                 <input
@@ -501,7 +545,7 @@ export default function ProcurementPage() {
                   onChange={(event) =>
                     setNewItem({ ...newItem, category: event.target.value })
                   }
-                  className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 md:col-span-2 placeholder:text-gray-400 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                  className="h-11 rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 md:col-span-2 placeholder:text-gray-500 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
                 />
               )}
               <button
@@ -512,13 +556,13 @@ export default function ProcurementPage() {
               </button>
             </form>
 
-            <div className="mt-5 grid gap-3 md:grid-cols-[minmax(220px,1fr)_170px_210px]">
+            <div className="mt-5 grid gap-3 rounded-2xl border border-gray-200 bg-gray-50/80 p-4 md:grid-cols-[minmax(220px,1fr)_170px_210px]">
               <input
                 type="search"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search name, code, team, category..."
-                className="h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                className="h-10 rounded-xl border border-gray-300 bg-white px-3 text-sm font-medium text-gray-950 shadow-sm placeholder:text-gray-500 focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
               />
               <select
                 value={teamFilter}
@@ -526,7 +570,7 @@ export default function ProcurementPage() {
                   setTeamFilter(event.target.value);
                   setCategoryFilter("");
                 }}
-                className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                className="h-11 rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
               >
                 <option value="">All teams</option>
                 <option value="flight">Flight</option>
@@ -536,7 +580,7 @@ export default function ProcurementPage() {
               <select
                 value={categoryFilter}
                 onChange={(event) => setCategoryFilter(event.target.value)}
-                className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                className="h-11 rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
               >
                 <option value="">All categories</option>
                 {categories.map((category) => (
@@ -546,108 +590,180 @@ export default function ProcurementPage() {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-left text-sm">
-              <thead className="bg-gray-50 text-xs uppercase text-gray-500">
-                <tr>
-                  <th className="px-4 py-3">Item</th>
-                  <th className="px-4 py-3">Team / category</th>
-                  <th className="px-4 py-3">UOM</th>
-                  <th className="px-4 py-3">Stock here</th>
-                  <th className="px-4 py-3">Unit price</th>
-                  <th className="px-4 py-3">Order</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredItems.map((item) => (
-                  <tr key={item.id} className="border-t border-gray-100">
-                    <td className="px-4 py-4">
-                      <p className="font-medium text-gray-900">{item.name}</p>
-                      <p className="mt-1 font-mono text-xs text-gray-500">
-                        {item.code}
-                      </p>
-                    </td>
-                    <td className="px-4 py-4">
-                      <p>{teamLabels[item.team]}</p>
-                      <p className="mt-1 text-xs text-gray-500">
-                        {item.category ?? "Unassigned"}
-                      </p>
-                    </td>
-                    <td className="px-4 py-4 text-gray-600">{item.uom}</td>
-                    <td className="px-4 py-4">
-                      {item.quantity === null
-                        ? "Not tracked here"
-                        : `${item.quantity.toLocaleString()} ${item.uom}`}
-                    </td>
-                    <td className="px-4 py-4">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          placeholder={
-                            item.unitCost === null
-                              ? "Unset"
-                              : String(item.unitCost)
-                          }
-                          value={priceDrafts[item.id] ?? ""}
-                          onChange={(event) =>
-                            setPriceDrafts({
-                              ...priceDrafts,
-                              [item.id]: event.target.value,
-                            })
-                          }
-                          className="h-9 w-24 rounded border border-gray-300 bg-white px-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => void updatePrice(item)}
-                          className="text-xs font-semibold text-emerald-700"
-                        >
-                          Save catalog price
-                        </button>
+          <div className="space-y-3 bg-gray-50/70 p-4 sm:p-5">
+            {pageItems.map((item) => (
+              <article
+                key={item.id}
+                className="rounded-2xl border border-gray-200 border-l-4 border-l-emerald-500 bg-white p-4 shadow-sm transition hover:border-emerald-300 hover:shadow-md sm:p-5"
+              >
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,0.9fr)] xl:items-center">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="break-words text-base font-bold text-gray-950">
+                          {item.name}
+                        </h3>
+                        <p className="mt-1 font-mono text-xs text-gray-500">
+                          {item.code || "No item code"}
+                        </p>
                       </div>
-                      <span className="text-xs text-gray-500">
+                      <span
+                        className={`rounded-full px-3 py-1.5 text-xs font-bold ${
+                          item.quantity === null
+                            ? "bg-gray-100 text-gray-700"
+                            : item.quantity <= 0
+                              ? "bg-rose-50 text-rose-700"
+                              : "bg-emerald-50 text-emerald-800"
+                        }`}
+                      >
+                        {item.quantity === null
+                          ? "Not tracked here"
+                          : item.quantity <= 0
+                            ? "Out of stock"
+                            : `${item.quantity.toLocaleString()} ${item.uom} in stock`}
+                      </span>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <span className="rounded-lg bg-sky-50 px-2.5 py-1.5 text-xs font-semibold text-sky-800">
+                        {teamLabels[item.team]}
+                      </span>
+                      <span className="rounded-lg bg-violet-50 px-2.5 py-1.5 text-xs font-semibold text-violet-800">
+                        {item.category ?? "Unassigned"}
+                      </span>
+                      <span className="rounded-lg bg-gray-100 px-2.5 py-1.5 text-xs font-semibold text-gray-700">
+                        Unit: {item.uom}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-sm text-gray-600">
+                      Current catalog price:{" "}
+                      <span className="font-bold text-gray-900">
                         {formatMoney(item.unitCost, item.currencyCode)}
                       </span>
-                    </td>
-                    <td className="px-4 py-4">
+                    </p>
+                  </div>
+
+                  <div className="grid gap-3 rounded-xl border border-gray-200 bg-gray-50 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                    <label className="grid gap-1.5 text-xs font-semibold text-gray-700">
+                      Update catalog price ({item.currencyCode})
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder={
+                          item.unitCost === null
+                            ? "Enter unit price"
+                            : String(item.unitCost)
+                        }
+                        value={priceDrafts[item.id] ?? ""}
+                        onChange={(event) =>
+                          setPriceDrafts({
+                            ...priceDrafts,
+                            [item.id]: event.target.value,
+                          })
+                        }
+                        className="h-11 w-full rounded-xl border border-gray-300 bg-white px-3 text-sm font-semibold text-gray-950 shadow-sm placeholder:text-gray-500 focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
+                      />
+                    </label>
+                    <div className="flex gap-2 sm:flex-col">
+                      <button
+                        type="button"
+                        onClick={() => void updatePrice(item)}
+                        className="min-h-11 flex-1 rounded-xl border border-emerald-200 bg-white px-3 text-xs font-bold text-emerald-800 transition hover:bg-emerald-50 focus:outline-none focus:ring-4 focus:ring-emerald-100 sm:flex-none"
+                      >
+                        Save price
+                      </button>
                       <button
                         type="button"
                         onClick={() => addToOrder(item)}
-                        className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white"
+                        className="min-h-11 flex-1 rounded-xl bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-200 sm:flex-none"
                       >
                         Add to cart
                       </button>
-                    </td>
-                  </tr>
-                ))}
+                    </div>
+                  </div>
+                </div>
+              </article>
+            ))}
 
-                {!loading && filteredItems.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="px-4 py-10 text-center text-gray-500"
-                    >
-                      No catalog items match these filters.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+            {!loading && filteredItems.length === 0 && (
+              <div className="rounded-2xl border border-dashed border-gray-300 bg-white px-5 py-12 text-center">
+                <p className="text-base font-semibold text-gray-800">
+                  No catalog items found
+                </p>
+                <p className="mt-1 text-sm text-gray-500">
+                  Try another search or clear one of the filters.
+                </p>
+              </div>
+            )}
+
+            {loading && (
+              <div className="rounded-2xl border border-gray-200 bg-white px-5 py-12 text-center text-sm font-medium text-gray-500">
+                Loading catalog items…
+              </div>
+            )}
           </div>
 
+          {filteredItems.length > 0 && (
+            <nav
+              aria-label="Catalog item pages"
+              className="flex flex-col gap-3 border-t border-gray-200 bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5"
+            >
+              <p className="text-sm text-gray-600">
+                Showing{" "}
+                <span className="font-bold text-gray-900">
+                  {firstVisibleItem}–{lastVisibleItem}
+                </span>{" "}
+                of{" "}
+                <span className="font-bold text-gray-900">
+                  {filteredItems.length}
+                </span>{" "}
+                items
+              </p>
+              <div className="flex items-center justify-between gap-3 sm:justify-end">
+                <button
+                  type="button"
+                  aria-label="Previous catalog page"
+                  onClick={() =>
+                    setCatalogPage((page) => Math.max(1, page - 1))
+                  }
+                  disabled={catalogPage <= 1}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-300 bg-white text-xl font-bold text-gray-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  ‹
+                </button>
+                <span className="min-w-24 text-center text-sm font-semibold text-gray-700">
+                  Page {catalogPage} of {pageCount}
+                </span>
+                <button
+                  type="button"
+                  aria-label="Next catalog page"
+                  onClick={() =>
+                    setCatalogPage((page) => Math.min(pageCount, page + 1))
+                  }
+                  disabled={catalogPage >= pageCount}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-300 bg-white text-xl font-bold text-gray-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  ›
+                </button>
+              </div>
+            </nav>
+          )}
+
           <p className="border-t px-5 py-3 text-xs text-gray-500">
-            Catalog prices are saved to app_items as defaults. Each cart price is saved as a purchase snapshot for Finance.
+            Catalog prices are saved to app_items as defaults. Each cart price
+            is saved as a purchase snapshot for Finance.
           </p>
         </section>
 
-        <aside className="space-y-5">
-          <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-            <div className="flex items-center justify-between border-b p-5">
+        <aside className="space-y-5 xl:sticky xl:top-5">
+          <section className="overflow-hidden rounded-2xl border-2 border-emerald-300 bg-white shadow-xl shadow-emerald-950/10 ring-4 ring-emerald-50">
+            <div className="flex items-center justify-between border-b border-emerald-800 bg-emerald-800 p-5 text-white">
               <div>
-                <h2 className="font-semibold">Purchase cart</h2>
-                <p className="mt-1 text-xs text-gray-500">
+                <h2 className="text-lg font-bold tracking-tight">
+                  Purchase cart
+                </h2>
+                <p className="mt-1 text-xs text-emerald-100">
                   Deliver to {data?.selectedNest.code}
                 </p>
               </div>
@@ -655,7 +771,7 @@ export default function ProcurementPage() {
                 <button
                   type="button"
                   onClick={() => setOrderLines([])}
-                  className="text-xs font-semibold text-gray-500"
+                  className="rounded-md px-2 py-1 text-xs font-semibold text-emerald-50 transition hover:bg-emerald-700"
                 >
                   Clear
                 </button>
@@ -663,13 +779,17 @@ export default function ProcurementPage() {
             </div>
 
             {orderLines.length === 0 ? (
-              <p className="px-5 py-10 text-center text-sm text-gray-500">
-                Add items from the catalog. Enter a purchase price and quantity before submitting.
+              <p className="m-4 rounded-xl border border-dashed border-emerald-200 bg-emerald-50/60 px-5 py-10 text-center text-sm leading-6 text-gray-600">
+                Add items from the catalog. Enter a purchase price and quantity
+                before submitting.
               </p>
             ) : (
               <div className="space-y-3 p-4">
                 {orderLines.map(({ item, quantity, unitCost }) => (
-                  <div key={item.id} className="rounded-lg border p-3">
+                  <div
+                    key={item.id}
+                    className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 shadow-sm"
+                  >
                     <div className="flex justify-between gap-2">
                       <p className="text-sm font-semibold">{item.name}</p>
                       <button
@@ -703,38 +823,42 @@ export default function ProcurementPage() {
                             ),
                           )
                         }
-                        className="h-9 w-full rounded border border-gray-300 bg-white px-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                        className="h-11 w-full rounded-xl border border-gray-300 bg-white px-3 text-sm font-medium text-gray-950 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
                       />
                     </label>
                     <label className="mt-2 grid gap-1 text-xs font-medium text-gray-700">
                       Quantity ({item.uom})
                       <input
-                      type="number"
-                      min="1"
-                      step="1"
-                      value={quantity}
-                      onChange={(event) =>
-                        setOrderLines((current) =>
-                          current.map((line) =>
-                            line.itemId === item.id
-                              ? {
-                                  ...line,
-                                  quantity: Number(event.target.value),
-                                }
-                              : line,
-                          ),
-                        )
-                      }
-                        className="h-9 w-full rounded border border-gray-300 bg-white px-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={quantity}
+                        onChange={(event) =>
+                          setOrderLines((current) =>
+                            current.map((line) =>
+                              line.itemId === item.id
+                                ? {
+                                    ...line,
+                                    quantity: Number(event.target.value),
+                                  }
+                                : line,
+                            ),
+                          )
+                        }
+                        className="h-11 w-full rounded-xl border border-gray-300 bg-white px-3 text-sm font-medium text-gray-950 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
                       />
                     </label>
                     <p className="mt-2 text-right text-xs text-gray-500">
-                      Line total: {formatMoney((Number(unitCost) || 0) * quantity, currency)}
+                      Line total:{" "}
+                      {formatMoney(
+                        (Number(unitCost) || 0) * quantity,
+                        currency,
+                      )}
                     </p>
                   </div>
                 ))}
 
-                <div className="flex justify-between border-t pt-3 font-bold">
+                <div className="flex justify-between rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-4 text-base font-bold text-emerald-950">
                   <span>Draft total</span>
                   <span>{formatMoney(orderTotal, currency)}</span>
                 </div>
@@ -742,7 +866,7 @@ export default function ProcurementPage() {
                   type="button"
                   onClick={() => void submitOrder()}
                   disabled={loading || orderLines.length === 0}
-                  className="w-full rounded-lg bg-emerald-700 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300"
+                  className="w-full rounded-xl bg-emerald-700 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-emerald-900/15 transition hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-200 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:shadow-none"
                 >
                   Submit purchase for receipt
                 </button>
@@ -750,7 +874,7 @@ export default function ProcurementPage() {
             )}
           </section>
 
-          <section className="rounded-xl border border-gray-200 bg-white p-5">
+          <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
             <h2 className="font-semibold">Recent requests</h2>
             <div className="mt-3 space-y-2">
               {(data?.recentRequests ?? []).map((purchase) => (
@@ -787,7 +911,7 @@ function SummaryCard({
   detail: string;
 }) {
   return (
-    <article className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+    <article className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
       <p className="text-sm font-medium text-gray-500">{label}</p>
       <p className="mt-3 text-2xl font-bold text-gray-900">{value}</p>
       <p className="mt-1 text-sm text-gray-500">{detail}</p>

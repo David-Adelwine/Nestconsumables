@@ -323,8 +323,8 @@ export default function StockPlanBuilderPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+    <div className="mx-auto max-w-7xl space-y-7">
+      <header className="flex flex-col justify-between gap-4 rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-white p-6 shadow-sm sm:flex-row sm:items-end">
         <div>
           <p className="text-xs font-semibold tracking-[0.16em] text-emerald-700">
             PROCUREMENT
@@ -333,11 +333,10 @@ export default function StockPlanBuilderPage() {
             Stock plan
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-gray-500">
-            Build a plan from the Supabase catalog and set quantities for each
-            accessible nest.
+            Create a reusable stock list, assign quantities to each nest, and review estimated cost before finance submission.
           </p>
         </div>
-        <span className="w-fit rounded-full bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800">
+        <span className="w-fit rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-amber-800">
           {status.replaceAll("_", " ")}
         </span>
       </header>
@@ -361,8 +360,9 @@ export default function StockPlanBuilderPage() {
       )}
 
       <section className="grid gap-5 lg:grid-cols-2">
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-          <h2 className="font-semibold text-gray-900">Plan details</h2>
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">Plan setup</p>
+          <h2 className="mt-1 text-lg font-bold text-gray-950">Plan details</h2>
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <label className="sm:col-span-2">
@@ -370,7 +370,7 @@ export default function StockPlanBuilderPage() {
               <input
                 value={planName}
                 onChange={(event) => setPlanName(event.target.value)}
-                className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm text-gray-900 bg-white placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                className="h-11 w-full rounded-xl border border-gray-300 px-3 text-sm text-gray-900 bg-white placeholder:text-gray-500 focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
               />
             </label>
 
@@ -379,7 +379,7 @@ export default function StockPlanBuilderPage() {
               <select
                 value={country}
                 onChange={(event) => void load(event.target.value)}
-                className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                className="h-11 w-full rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
               >
                 {(data?.countries ?? []).map((value) => (
                   <option key={value} value={value}>
@@ -398,7 +398,7 @@ export default function StockPlanBuilderPage() {
                     event.target.value as "monthly" | "quarterly",
                   )
                 }
-                className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                className="h-11 w-full rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
               >
                 <option value="quarterly">Quarterly</option>
                 <option value="monthly">Monthly</option>
@@ -411,7 +411,7 @@ export default function StockPlanBuilderPage() {
                 value={period}
                 onChange={(event) => setPeriod(event.target.value)}
                 placeholder={currentQuarter()}
-                className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm text-gray-900 bg-white placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                className="h-11 w-full rounded-xl border border-gray-300 px-3 text-sm text-gray-900 bg-white placeholder:text-gray-500 focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
               />
             </label>
 
@@ -420,13 +420,13 @@ export default function StockPlanBuilderPage() {
               <input
                 value={currency}
                 readOnly
-                className="h-10 w-full rounded-lg border border-gray-300 bg-gray-50 px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                className="h-11 w-full rounded-xl border border-gray-300 bg-gray-50 px-3 text-sm text-gray-900 placeholder:text-gray-500 focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
               />
             </label>
           </div>
         </div>
 
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
           <div className="flex items-start justify-between gap-3">
             <div>
               <h2 className="font-semibold text-gray-900">Nests included</h2>
@@ -453,7 +453,7 @@ export default function StockPlanBuilderPage() {
             {nests.map((nest) => (
               <label
                 key={nest.id}
-                className="flex cursor-pointer items-center gap-2 rounded-lg border p-3 text-sm"
+                className="flex cursor-pointer items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm font-semibold text-gray-800 transition hover:border-emerald-300 hover:bg-emerald-50 has-[:checked]:border-emerald-500 has-[:checked]:bg-emerald-50"
               >
                 <input
                   type="checkbox"
@@ -468,13 +468,14 @@ export default function StockPlanBuilderPage() {
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div className="border-b p-5">
+      <section className="overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-lg shadow-emerald-950/5 ring-1 ring-emerald-50">
+        <div className="border-b border-emerald-100 bg-gradient-to-r from-emerald-50/90 to-white p-6">
           <div className="flex flex-col justify-between gap-3 sm:flex-row">
             <div>
-              <h2 className="font-semibold">Add from catalog</h2>
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">Master catalogue</p>
+              <h2 className="mt-1 text-xl font-bold tracking-tight text-gray-950">Build your nest list</h2>
               <p className="mt-1 text-sm text-gray-500">
-                Catalog, filters, and prices are loaded from Supabase.
+                Select items from the master catalogue, then set a quantity for every selected nest.
               </p>
             </div>
             <input
@@ -482,18 +483,18 @@ export default function StockPlanBuilderPage() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search catalog"
-              className="h-10 rounded-lg border border-gray-300 px-3 text-sm text-gray-900 bg-white placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+              className="h-11 rounded-xl border border-gray-300 px-3 text-sm text-gray-900 bg-white placeholder:text-gray-500 focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
             />
           </div>
 
-          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <div className="mt-5 grid gap-3 rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm sm:grid-cols-3">
             <select
               value={teamFilter}
               onChange={(event) => {
                 setTeamFilter(event.target.value);
                 setCategoryFilter("");
               }}
-              className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+              className="h-11 rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
             >
               <option value="">All teams</option>
               {teams.map((team) => (
@@ -506,7 +507,7 @@ export default function StockPlanBuilderPage() {
             <select
               value={categoryFilter}
               onChange={(event) => setCategoryFilter(event.target.value)}
-              className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+              className="h-11 rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
             >
               <option value="">All categories</option>
               {categoryOptions.map((category) => (
@@ -520,7 +521,7 @@ export default function StockPlanBuilderPage() {
               <select
                 value={selectedItemId}
                 onChange={(event) => setSelectedItemId(event.target.value)}
-                className="h-10 min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                className="h-10 min-w-0 flex-1 rounded-xl border border-gray-300 bg-white px-3 text-sm font-medium text-gray-950 shadow-sm placeholder:text-gray-500 focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
               >
                 <option value="">Choose an item</option>
                 {availableCatalog.map((item) => (
@@ -533,7 +534,7 @@ export default function StockPlanBuilderPage() {
                 type="button"
                 disabled={!selectedItemId}
                 onClick={addItem}
-                className="rounded-lg bg-emerald-700 px-3 text-sm font-semibold text-white disabled:bg-gray-300"
+                className="rounded-xl bg-emerald-700 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-200 disabled:cursor-not-allowed disabled:bg-gray-300"
               >
                 Add
               </button>
@@ -543,7 +544,7 @@ export default function StockPlanBuilderPage() {
 
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px] text-left text-sm">
-            <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+            <thead className="bg-gray-50 text-xs font-bold uppercase tracking-wide text-gray-600">
               <tr>
                 <th className="px-4 py-3">Item</th>
                 <th className="px-4 py-3">Team / category</th>
@@ -568,7 +569,7 @@ export default function StockPlanBuilderPage() {
                 );
 
                 return (
-                  <tr key={item.id} className="border-t">
+                  <tr key={item.id} className="border-t border-gray-100 transition-colors hover:bg-emerald-50/40">
                     <td className="px-4 py-4">
                       <p className="font-medium">{item.name}</p>
                       <p className="mt-1 font-mono text-xs text-gray-500">
@@ -603,7 +604,7 @@ export default function StockPlanBuilderPage() {
                             )
                           }
                           aria-label={`${item.name} quantity for ${nest.code}`}
-                          className="h-9 w-20 rounded border border-gray-300 bg-white px-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                          className="h-10 w-24 rounded-lg border border-gray-300 bg-white px-3 text-sm font-semibold text-gray-950 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
                         />
                       </td>
                     ))}
@@ -646,7 +647,7 @@ export default function StockPlanBuilderPage() {
       </section>
 
       <section className="grid gap-5 lg:grid-cols-2">
-        <div className="rounded-xl border bg-white p-5">
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
           <h2 className="font-semibold">Plan cost by team</h2>
           <div className="mt-4 space-y-3">
             {teamTotals.map(({ team, total }) => (
@@ -662,7 +663,7 @@ export default function StockPlanBuilderPage() {
           </div>
         </div>
 
-        <div className="rounded-xl border bg-white p-5">
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
           <h2 className="font-semibold">Plan cost by nest</h2>
           <div className="mt-4 space-y-3">
             {nestTotals.map(({ nest, total }) => (
@@ -680,7 +681,7 @@ export default function StockPlanBuilderPage() {
         </div>
       </section>
 
-      <section className="flex flex-col justify-between gap-4 rounded-xl border bg-white p-5 sm:flex-row sm:items-center">
+      <section className="flex flex-col justify-between gap-4 rounded-2xl border border-emerald-300 bg-gradient-to-r from-emerald-50 to-white p-6 shadow-md sm:flex-row sm:items-center">
         <div>
           <h2 className="font-semibold">Review and submit</h2>
           <p className="mt-1 text-sm text-gray-500">
@@ -698,7 +699,7 @@ export default function StockPlanBuilderPage() {
             type="button"
             disabled={saving || loading}
             onClick={() => void save("draft")}
-            className="h-10 rounded-lg border px-4 text-sm font-semibold disabled:opacity-50"
+            className="h-11 rounded-xl border border-gray-300 bg-white px-5 text-sm font-bold text-gray-800 shadow-sm transition hover:bg-gray-50 disabled:opacity-50"
           >
             {saving ? "Saving…" : "Save draft"}
           </button>
@@ -711,7 +712,7 @@ export default function StockPlanBuilderPage() {
               planItems.length === 0
             }
             onClick={() => void save("submit")}
-            className="h-10 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white disabled:bg-gray-300"
+            className="h-11 rounded-xl bg-emerald-700 px-5 text-sm font-bold text-white shadow-md transition hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-200 disabled:cursor-not-allowed disabled:bg-gray-300"
           >
             {saving ? "Saving…" : "Submit for finance review"}
           </button>

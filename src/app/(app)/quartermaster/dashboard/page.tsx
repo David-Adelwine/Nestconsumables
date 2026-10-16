@@ -10,6 +10,7 @@ import {
 
 type Team = "flight" | "fulfilment" | "facilities";
 type TeamFilter = Team | "";
+type StockFilter = "all" | "in_stock" | "out_of_stock" | "untracked";
 
 type NestOption = {
   nestId: string;
@@ -63,6 +64,7 @@ type ApiResult = {
 };
 
 const teams: Team[] = ["flight", "fulfilment", "facilities"];
+const inventoryPageSize = 40;
 
 const teamLabels: Record<Team, string> = {
   flight: "Flight",
@@ -150,6 +152,8 @@ export default function QuartermasterDashboardPage() {
   const [search, setSearch] = useState("");
   const [teamFilter, setTeamFilter] = useState<TeamFilter>("");
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [stockFilter, setStockFilter] = useState<StockFilter>("all");
+  const [inventoryPage, setInventoryPage] = useState(1);
 
   const [consumeOpen, setConsumeOpen] = useState(false);
   const [consumeSearch, setConsumeSearch] = useState("");
@@ -321,6 +325,16 @@ export default function QuartermasterDashboardPage() {
       const matchesCategory =
         !categoryFilter || itemCategory === categoryFilter;
 
+      const matchesStock =
+        stockFilter === "all" ||
+        (stockFilter === "in_stock" &&
+          item.stockQuantity !== null &&
+          Number(item.stockQuantity) > 0) ||
+        (stockFilter === "out_of_stock" &&
+          item.stockQuantity !== null &&
+          Number(item.stockQuantity) <= 0) ||
+        (stockFilter === "untracked" && item.stockQuantity === null);
+
       const searchable = [
         item.name,
         item.code ?? "",
@@ -334,10 +348,35 @@ export default function QuartermasterDashboardPage() {
       return (
         matchesTeam &&
         matchesCategory &&
+        matchesStock &&
         (!query || searchable.includes(query))
       );
     });
-  }, [catalogItems, search, teamFilter, categoryFilter]);
+  }, [catalogItems, search, teamFilter, categoryFilter, stockFilter]);
+
+  useEffect(() => {
+    setInventoryPage(1);
+  }, [search, teamFilter, categoryFilter, stockFilter, selectedNestId]);
+
+  const inventoryPageCount = Math.max(
+    1,
+    Math.ceil(filteredItems.length / inventoryPageSize),
+  );
+
+  const pageItems = filteredItems.slice(
+    (inventoryPage - 1) * inventoryPageSize,
+    inventoryPage * inventoryPageSize,
+  );
+
+  const firstVisibleItem =
+    filteredItems.length === 0
+      ? 0
+      : (inventoryPage - 1) * inventoryPageSize + 1;
+
+  const lastVisibleItem = Math.min(
+    inventoryPage * inventoryPageSize,
+    filteredItems.length,
+  );
 
   const consumeSuggestions = useMemo(() => {
     const query = consumeSearch.trim().toLowerCase();
@@ -381,6 +420,8 @@ export default function QuartermasterDashboardPage() {
   const outOfStockCount = catalogItems.filter(
     (item) => item.stockQuantity !== null && Number(item.stockQuantity) <= 0,
   ).length;
+
+  const untrackedCount = catalogItems.length - trackedCount;
 
   const teamDescription =
     allowedTeams.length === 3
@@ -429,6 +470,16 @@ export default function QuartermasterDashboardPage() {
       category: item.category?.trim() ?? "",
       unit: item.uom,
     }));
+  }
+
+  function chooseTeamFilter(team: TeamFilter) {
+    setTeamFilter(team);
+    setStockFilter("all");
+  }
+
+  function chooseStockFilter(filter: StockFilter) {
+    setTeamFilter("");
+    setStockFilter(filter);
   }
 
   async function postDashboardAction(body: Record<string, unknown>) {
@@ -485,7 +536,10 @@ export default function QuartermasterDashboardPage() {
     if (invalidLine) {
       const message = getReceiptQuantityMessage(
         invalidLine.line,
-        String(receiptQuantities[invalidLine.line.lineId] ?? invalidLine.quantity),
+        String(
+          receiptQuantities[invalidLine.line.lineId] ??
+            invalidLine.quantity,
+        ),
         nestCode,
       );
 
@@ -680,7 +734,9 @@ export default function QuartermasterDashboardPage() {
 
       setAddItemOpen(false);
       setNotice(
-        `${newItem.name.trim()} quantity was added at ${assignedLocation?.code ?? "this nest"}.`,
+        `${newItem.name.trim()} quantity was added at ${
+          assignedLocation?.code ?? "this nest"
+        }.`,
       );
       setRefreshKey((value) => value + 1);
     } catch (saveError) {
@@ -703,11 +759,11 @@ export default function QuartermasterDashboardPage() {
               Quartermaster workspace
             </p>
             <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">
-              Item catalog and stock
+              Inventory overview
             </h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-500">
-              Review catalog items, record consumption, organize categories,
-              and add stock at your assigned nest.
+              Review deliveries, find stock quickly, and manage item balances
+              at your assigned nest.
             </p>
           </div>
 
@@ -723,9 +779,10 @@ export default function QuartermasterDashboardPage() {
                     setSelectedNestId(event.target.value);
                     setTeamFilter("");
                     setCategoryFilter("");
+                    setStockFilter("all");
                     setNotice("");
                   }}
-                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700"
+                  className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-800 shadow-sm"
                 >
                   {availableNests.map((nest) => (
                     <option key={nest.nestId} value={nest.nestId}>
@@ -735,11 +792,21 @@ export default function QuartermasterDashboardPage() {
                 </select>
               </label>
             ) : (
-              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                <span className="text-slate-500">Assigned location </span>
-                <strong className="text-emerald-800">
-                  {assignedLocation?.code ?? (loading ? "Loading…" : "—")}
-                </strong>
+              <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
+                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-lg text-emerald-700">
+                  ⌖
+                </span>
+                <span>
+                  <span className="block text-[10px] text-slate-500">
+                    Assigned location
+                  </span>
+                  <strong className="block text-sm text-emerald-900">
+                    {assignedLocation?.code ?? (loading ? "Loading…" : "—")}
+                    {assignedLocation?.name
+                      ? ` · ${assignedLocation.name}`
+                      : ""}
+                  </strong>
+                </span>
               </div>
             )}
           </div>
@@ -763,218 +830,653 @@ export default function QuartermasterDashboardPage() {
           </div>
         )}
 
-        <section className="mt-7 flex flex-col gap-4 rounded-xl border border-emerald-100 bg-emerald-50/70 p-5 sm:flex-row sm:items-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100 text-2xl text-emerald-700">
-            ⌖
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-              Your inventory location
-            </p>
-            <h2 className="mt-1 text-lg font-bold">
-              {assignedLocation
-                ? `${assignedLocation.code} · ${assignedLocation.name}`
-                : loading
-                  ? "Loading assigned location…"
-                  : "No assigned location"}
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Team filters: {teamDescription || "all teams"}.
-            </p>
-          </div>
-          <span className="w-fit rounded border border-emerald-100 bg-white px-2 py-1 text-[10px] font-bold tracking-wide text-emerald-800 sm:ml-auto">
-            LIVE SUPABASE DATA
-          </span>
-        </section>
-
-        <section className="mt-5 grid gap-3 sm:grid-cols-3">
+        <section className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <SummaryCard
             label="Catalog items"
             value={loading ? "—" : catalogItems.length}
-            detail="Active items, including items without stock"
+            detail="Items across the country catalog"
             icon="▤"
             iconClass="bg-emerald-50 text-emerald-700"
           />
           <SummaryCard
-            label="Tracked items"
-            value={loading ? "—" : trackedCount}
-            detail="Items with a stock record at this nest"
+            label="In stock"
+            value={loading ? "—" : availableItems.length}
+            detail="Positive balances at this nest"
             icon="✓"
             iconClass="bg-blue-50 text-blue-700"
           />
           <SummaryCard
             label="Out of stock"
             value={loading ? "—" : outOfStockCount}
-            detail="Stocked items with a zero balance"
-            icon="—"
+            detail="Tracked items with zero balance"
+            icon="!"
             iconClass="bg-amber-50 text-amber-700"
+          />
+          <SummaryCard
+            label="Not recorded"
+            value={loading ? "—" : untrackedCount}
+            detail="No balance recorded at this nest"
+            icon="○"
+            iconClass="bg-slate-100 text-slate-600"
           />
         </section>
 
         {receiptRequests.length > 0 && (
-          <section className="mt-7 space-y-4">
-            <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-5">
-              <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
-                    Delivery review
-                  </p>
-                  <h2 className="mt-1 text-lg font-semibold text-slate-900">
-                    Purchases awaiting receipt
-                  </h2>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Review each request manifest and compare the listed items
-                    and quantities with the delivery before confirming receipt.
-                  </p>
-                </div>
-                <span className="w-fit rounded-full bg-white px-3 py-1 text-xs font-semibold text-amber-800">
-                  {receiptRequests.length} request(s) ·{" "}
-                  {pendingReceiptLineCount} item line(s) pending
+          <section className="mt-7">
+            <details className="group overflow-hidden rounded-xl border border-amber-200 bg-white shadow-sm">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 bg-gradient-to-r from-amber-50 to-white p-5 [&::-webkit-details-marker]:hidden">
+                <span className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-lg text-amber-800">
+                    ⇩
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-[10px] font-bold uppercase tracking-[0.14em] text-amber-800">
+                      Delivery review
+                    </span>
+                    <span className="mt-0.5 block truncate text-lg font-bold tracking-tight text-slate-900">
+                      Purchases awaiting receipt
+                    </span>
+                    <span className="mt-1 block text-xs text-slate-600">
+                      Open to review manifests and acknowledge deliveries.
+                    </span>
+                  </span>
                 </span>
+
+                <span className="flex shrink-0 items-center gap-3">
+                  <span className="hidden rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 shadow-sm sm:inline-flex">
+                    {receiptRequests.length} delivery(s) ·{" "}
+                    {pendingReceiptLineCount} item line(s) pending
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className="flex h-9 w-9 items-center justify-center rounded-lg border border-amber-200 bg-white text-lg text-amber-800 transition-transform group-open:rotate-180"
+                  >
+                    ⌄
+                  </span>
+                </span>
+              </summary>
+
+              <div className="space-y-4 border-t border-amber-100 bg-slate-50/40 p-4 sm:p-5">
+                <div className="flex flex-wrap gap-2 sm:hidden">
+                  <span className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 shadow-sm">
+                    {receiptRequests.length} delivery(s)
+                  </span>
+                  <span className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 shadow-sm">
+                    {pendingReceiptLineCount} item line(s) pending
+                  </span>
+                </div>
+
+                <p className="text-sm text-slate-600">
+                  Compare each delivery with its manifest before acknowledging
+                  the items.
+                </p>
+
+                {receiptRequests.map((purchase) => {
+                  const isVerified = Boolean(
+                    verifiedReceiptRequests[purchase.requestId],
+                  );
+                  const pendingLines = purchase.lines.filter(
+                    (line) => line.pendingQuantity > 0,
+                  );
+                  const hasFractionalPending = pendingLines.some(
+                    (line) => !Number.isSafeInteger(line.pendingQuantity),
+                  );
+
+                  return (
+                    <article
+                      key={purchase.requestId}
+                      className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+                    >
+                      <header className="flex flex-col justify-between gap-3 border-b border-slate-100 bg-white p-5 sm:flex-row sm:items-center">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-base font-bold text-slate-900">
+                              Delivery {purchase.reference}
+                            </h3>
+                            <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold capitalize text-amber-900">
+                              {purchase.status.replaceAll("_", " ")}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {purchase.createdAt
+                              ? `Sent ${formatUpdatedAt(purchase.createdAt)}`
+                              : "Purchase delivery"}
+                          </p>
+                        </div>
+                        <span className="w-fit rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600">
+                          {purchase.lines.length} manifest item(s) ·{" "}
+                          {pendingLines.length} awaiting receipt
+                        </span>
+                      </header>
+
+                      <div className="overflow-x-auto">
+                        <table className="w-full min-w-[900px] text-left text-sm">
+                          <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.1em] text-slate-500">
+                            <tr>
+                              <th className="px-5 py-3">Item sent</th>
+                              <th className="px-4 py-3">Ordered</th>
+                              <th className="px-4 py-3">Received</th>
+                              <th className="px-4 py-3">Still expected</th>
+                              <th className="px-5 py-3">Receive now</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {purchase.lines.map((line) => {
+                              const team = normalizeTeam(line.team);
+                              const complete = line.pendingQuantity <= 0;
+                              const fractional =
+                                line.pendingQuantity > 0 &&
+                                !Number.isSafeInteger(line.pendingQuantity);
+                              const rawQuantity =
+                                receiptQuantities[line.lineId] ??
+                                String(line.pendingQuantity);
+                              const feedback = fractional
+                                ? null
+                                : getReceiptQuantityMessage(
+                                    line,
+                                    rawQuantity,
+                                    nestCode,
+                                  );
+
+                              return (
+                                <tr
+                                  key={line.lineId}
+                                  className="transition-colors hover:bg-amber-50/20"
+                                >
+                                  <td className="px-5 py-4">
+                                    <p className="font-semibold text-slate-900">
+                                      {line.itemName}
+                                    </p>
+                                    <p className="mt-1 text-[11px] text-slate-500">
+                                      {line.itemCode
+                                        ? `${line.itemCode} · `
+                                        : ""}
+                                      {team ? displayTeam(team) : line.team}
+                                    </p>
+                                  </td>
+                                  <td className="whitespace-nowrap px-4 py-4 font-medium text-slate-700">
+                                    {line.orderedQuantity} {line.unit}
+                                  </td>
+                                  <td className="whitespace-nowrap px-4 py-4 text-slate-600">
+                                    {line.receivedQuantity} {line.unit}
+                                  </td>
+                                  <td className="whitespace-nowrap px-4 py-4">
+                                    <span
+                                      className={
+                                        complete
+                                          ? "font-medium text-emerald-700"
+                                          : "font-bold text-amber-800"
+                                      }
+                                    >
+                                      {line.pendingQuantity} {line.unit}
+                                    </span>
+                                  </td>
+                                  <td className="px-5 py-4">
+                                    {complete ? (
+                                      <span className="text-sm font-semibold text-emerald-700">
+                                        Fully received
+                                      </span>
+                                    ) : fractional ? (
+                                      <span className="text-xs font-semibold text-red-700">
+                                        Fractional balance needs correction
+                                      </span>
+                                    ) : (
+                                      <div>
+                                        <input
+                                          type="number"
+                                          min="1"
+                                          max={line.pendingQuantity}
+                                          step="1"
+                                          inputMode="numeric"
+                                          aria-label={`Quantity received now for ${line.itemName}`}
+                                          aria-invalid={
+                                            feedback?.kind === "error"
+                                          }
+                                          value={rawQuantity}
+                                          onChange={(event) => {
+                                            setReceiptQuantities((current) => ({
+                                              ...current,
+                                              [line.lineId]:
+                                                event.target.value,
+                                            }));
+                                            setReceiptErrors((current) => {
+                                              const next = { ...current };
+                                              delete next[purchase.requestId];
+                                              return next;
+                                            });
+                                          }}
+                                          className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100 sm:w-40"
+                                        />
+                                        {feedback && (
+                                          <p
+                                            className={`mt-1 max-w-xs text-xs ${
+                                              feedback.kind === "error"
+                                                ? "text-red-700"
+                                                : "text-slate-600"
+                                            }`}
+                                          >
+                                            {feedback.text}
+                                          </p>
+                                        )}
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {pendingLines.length > 0 && (
+                        <label className="flex cursor-pointer items-start gap-3 border-t border-slate-100 bg-slate-50/70 px-5 py-4 text-sm text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={isVerified}
+                            onChange={(event) => {
+                              setVerifiedReceiptRequests((current) => ({
+                                ...current,
+                                [purchase.requestId]: event.target.checked,
+                              }));
+                              setReceiptErrors((current) => {
+                                const next = { ...current };
+                                delete next[purchase.requestId];
+                                return next;
+                              });
+                            }}
+                            className="mt-0.5 h-4 w-4 accent-emerald-700"
+                          />
+                          <span>
+                            <span className="block font-semibold text-slate-900">
+                              I checked the delivery against this manifest.
+                            </span>
+                            <span className="mt-0.5 block text-xs text-slate-500">
+                              Review all listed quantities, then acknowledge
+                              this receipt once.
+                            </span>
+                          </span>
+                        </label>
+                      )}
+
+                      {pendingLines.length > 0 && (
+                        <div className="flex flex-col justify-between gap-3 border-t border-slate-100 p-5 sm:flex-row sm:items-center">
+                          <div className="min-w-0">
+                            <p className="text-sm text-slate-600">
+                              {pendingLines.length} item line(s) will be
+                              recorded together for {purchase.reference}.
+                            </p>
+                            {hasFractionalPending && (
+                              <p className="mt-1 text-xs font-medium text-red-700">
+                                This request has a fractional remaining balance
+                                from an earlier entry. Ask an administrator to
+                                correct it before acknowledging receipt.
+                              </p>
+                            )}
+                            {receiptErrors[purchase.requestId] && (
+                              <p
+                                role="alert"
+                                className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+                              >
+                                {receiptErrors[purchase.requestId]}
+                              </p>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void acknowledgePurchase(purchase)}
+                            disabled={
+                              !isVerified ||
+                              hasFractionalPending ||
+                              Boolean(receivingRequestId)
+                            }
+                            className="h-11 shrink-0 rounded-lg bg-emerald-700 px-5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                          >
+                            {receivingRequestId === purchase.requestId
+                              ? "Recording receipt…"
+                              : "Acknowledge all received items"}
+                          </button>
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            </details>
+          </section>
+        )}
+
+        <section className="mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 bg-gradient-to-r from-white to-emerald-50/50 p-5 sm:p-6">
+            <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">
+                  Stock control
+                </p>
+                <h2 className="mt-1 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+                  Inventory items
+                </h2>
+                <p className="mt-1 max-w-2xl text-sm text-slate-500">
+                  Search the catalog, check balances at this nest, and narrow
+                  the list by team, category, or stock status.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={openAddItem}
+                  className="h-10 rounded-lg border border-emerald-200 bg-white px-4 text-sm font-semibold text-emerald-800 shadow-sm hover:bg-emerald-50"
+                >
+                  <span aria-hidden="true" className="mr-1">
+                    ＋
+                  </span>
+                  Add item and quantity
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openConsume()}
+                  disabled={availableItems.length === 0 || loading}
+                  className="h-10 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Consume an item
+                </button>
               </div>
             </div>
+          </div>
 
-            {receiptRequests.map((purchase) => {
-              const isVerified = Boolean(
-                verifiedReceiptRequests[purchase.requestId],
-              );
-              const pendingLines = purchase.lines.filter(
-                (line) => line.pendingQuantity > 0,
-              );
-              const hasFractionalPending = pendingLines.some(
-                (line) => !Number.isSafeInteger(line.pendingQuantity),
-              );
+          <div className="grid gap-3 border-b border-slate-200 p-4 sm:grid-cols-2 sm:p-5 xl:grid-cols-4">
+            <SummaryCard
+              label="Catalog items"
+              value={loading ? "—" : catalogItems.length}
+              detail="Items in the country catalog"
+              icon="▤"
+              iconClass="bg-emerald-50 text-emerald-700"
+            />
+            <SummaryCard
+              label="In stock"
+              value={loading ? "—" : availableItems.length}
+              detail="Positive balances at this nest"
+              icon="✓"
+              iconClass="bg-blue-50 text-blue-700"
+            />
+            <SummaryCard
+              label="Out of stock"
+              value={loading ? "—" : outOfStockCount}
+              detail="Tracked items with zero balance"
+              icon="!"
+              iconClass="bg-amber-50 text-amber-700"
+            />
+            <SummaryCard
+              label="Not recorded"
+              value={loading ? "—" : untrackedCount}
+              detail="No balance recorded at this nest"
+              icon="○"
+              iconClass="bg-slate-100 text-slate-600"
+            />
+          </div>
 
-              return (
-                <article
-                  key={purchase.requestId}
-                  className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
-                >
-                  <header className="flex flex-col justify-between gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-base font-semibold text-slate-900">
-                          Delivery {purchase.reference}
-                        </h3>
-                        <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium capitalize text-amber-800">
-                          {purchase.status.replaceAll("_", " ")}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-sm text-slate-500">
-                        {purchase.createdAt
-                          ? `Sent ${formatUpdatedAt(purchase.createdAt)}`
-                          : "Purchase delivery"}
-                      </p>
-                    </div>
-                    <span className="w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                      {purchase.lines.length} manifest item(s) ·{" "}
-                      {pendingLines.length} awaiting receipt
+          <div className="grid lg:grid-cols-[210px_minmax(0,1fr)]">
+            <aside className="border-b border-slate-200 bg-slate-50/70 p-3 sm:p-4 lg:border-b-0 lg:border-r">
+              <p className="mb-2 px-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                Browse teams
+              </p>
+
+              <BrowseButton
+                label="All items"
+                count={catalogItems.length}
+                active={!teamFilter && stockFilter === "all"}
+                onClick={() => chooseTeamFilter("")}
+                icon="▦"
+              />
+
+              {teams.map((team) => (
+                <BrowseButton
+                  key={team}
+                  label={displayTeam(team)}
+                  count={
+                    catalogItems.filter((item) => item.team === team).length
+                  }
+                  active={teamFilter === team && stockFilter === "all"}
+                  onClick={() => chooseTeamFilter(team)}
+                  icon={
+                    team === "flight"
+                      ? "✦"
+                      : team === "fulfilment"
+                        ? "▣"
+                        : "⌂"
+                  }
+                />
+              ))}
+
+              <div className="my-4 border-t border-slate-200" />
+
+              <p className="mb-2 px-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                Quick views
+              </p>
+
+              <BrowseButton
+                label="In stock"
+                count={availableItems.length}
+                active={stockFilter === "in_stock"}
+                onClick={() => chooseStockFilter("in_stock")}
+                icon="✓"
+              />
+              <BrowseButton
+                label="Out of stock"
+                count={outOfStockCount}
+                active={stockFilter === "out_of_stock"}
+                onClick={() => chooseStockFilter("out_of_stock")}
+                icon="!"
+              />
+              <BrowseButton
+                label="Not recorded"
+                count={untrackedCount}
+                active={stockFilter === "untracked"}
+                onClick={() => chooseStockFilter("untracked")}
+                icon="○"
+              />
+            </aside>
+
+            <div className="min-w-0">
+              <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:p-5 xl:flex-row xl:items-center xl:justify-between">
+                <label className="flex h-11 min-w-0 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-slate-400 shadow-sm xl:max-w-md xl:flex-1">
+                  <span aria-hidden="true" className="text-lg">
+                    ⌕
+                  </span>
+                  <input
+                    type="search"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search by item name or code..."
+                    aria-label="Search catalog items"
+                    className="min-w-0 flex-1 border-0 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                  />
+                </label>
+
+                <div className="grid gap-2 sm:grid-cols-2 xl:w-[390px]">
+                  <label>
+                    <span className="sr-only">Filter by team</span>
+                    <select
+                      value={teamFilter}
+                      onChange={(event) =>
+                        chooseTeamFilter(event.target.value as TeamFilter)
+                      }
+                      className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 shadow-sm"
+                    >
+                      <option value="">All teams</option>
+                      {teams.map((team) => (
+                        <option key={team} value={team}>
+                          {displayTeam(team)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label>
+                    <span className="sr-only">Filter by category</span>
+                    <select
+                      value={categoryFilter}
+                      onChange={(event) =>
+                        setCategoryFilter(event.target.value)
+                      }
+                      className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 shadow-sm"
+                    >
+                      <option value="">All categories</option>
+                      {categoryOptions.map((category) => (
+                        <option key={category} value={category}>
+                          {category}
+                        </option>
+                      ))}
+                      {catalogItems.some((item) => !item.category?.trim()) && (
+                        <option value="Unassigned">Unassigned</option>
+                      )}
+                    </select>
+                  </label>
+                </div>
+              </div>
+
+              {loading && !dashboard ? (
+                <div className="px-5 py-14 text-center text-sm text-slate-500">
+                  Loading catalog…
+                </div>
+              ) : filteredItems.length === 0 ? (
+                <div className="px-5 py-14 text-center">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-xl text-slate-500">
+                    ⌕
+                  </div>
+                  <p className="mt-3 text-sm font-semibold text-slate-800">
+                    {error
+                      ? "Dashboard data could not be loaded."
+                      : "No items match these filters."}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Try another search, team, category, or stock view.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-4 sm:px-5">
+                    <p className="text-xs font-medium text-slate-500">
+                      Showing{" "}
+                      <strong className="text-slate-800">
+                        {firstVisibleItem}–{lastVisibleItem}
+                      </strong>{" "}
+                      of {filteredItems.length} matching items
+                    </p>
+                    <span className="hidden text-xs text-slate-400 sm:inline">
+                      Balances at {assignedLocation?.code ?? "this nest"}
                     </span>
-                  </header>
+                  </div>
 
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[900px] text-left text-sm">
-                      <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                    <table className="w-full min-w-[920px] border-collapse text-left">
+                      <thead className="bg-slate-50">
                         <tr>
-                          <th className="px-5 py-3">Item sent</th>
-                          <th className="px-4 py-3">Ordered</th>
-                          <th className="px-4 py-3">Received</th>
-                          <th className="px-4 py-3">Still expected</th>
-                          <th className="px-5 py-3">Quantity received now</th>
+                          <TableHeading>Item</TableHeading>
+                          <TableHeading>Team</TableHeading>
+                          <TableHeading>Category</TableHeading>
+                          <TableHeading>Available quantity</TableHeading>
+                          <TableHeading>Last updated</TableHeading>
+                          <TableHeading>Actions</TableHeading>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {purchase.lines.map((line) => {
-                          const team = normalizeTeam(line.team);
-                          const complete = line.pendingQuantity <= 0;
-                          const fractional =
-                            line.pendingQuantity > 0 &&
-                            !Number.isSafeInteger(line.pendingQuantity);
-                          const rawQuantity =
-                            receiptQuantities[line.lineId] ??
-                            String(line.pendingQuantity);
-                          const feedback = fractional
-                            ? null
-                            : getReceiptQuantityMessage(
-                                line,
-                                rawQuantity,
-                                nestCode,
-                              );
+                      <tbody>
+                        {pageItems.map((item) => {
+                          const quantity = item.stockQuantity;
+                          const hasStock = quantity !== null && quantity > 0;
 
                           return (
-                            <tr key={line.lineId}>
-                              <td className="px-5 py-4">
-                                <p className="font-semibold text-slate-900">
-                                  {line.itemName}
-                                </p>
-                                <p className="mt-1 text-xs text-slate-500">
-                                  {line.itemCode ? `${line.itemCode} · ` : ""}
-                                  {team ? displayTeam(team) : line.team}
-                                </p>
+                            <tr
+                              key={item.id}
+                              className="border-t border-slate-100 transition-colors hover:bg-emerald-50/30"
+                            >
+                              <td className="px-4 py-4 sm:px-5">
+                                <div className="flex min-w-[210px] items-center gap-3">
+                                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-100 bg-emerald-50 text-lg font-semibold text-emerald-700">
+                                    {item.name.slice(0, 1).toUpperCase()}
+                                  </span>
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm font-semibold text-slate-900">
+                                      {item.name}
+                                    </p>
+                                    <p className="mt-0.5 truncate font-mono text-[11px] text-slate-400">
+                                      {item.code || "No item code"}
+                                    </p>
+                                  </div>
+                                </div>
                               </td>
-                              <td className="whitespace-nowrap px-4 py-4 font-medium text-slate-700">
-                                {line.orderedQuantity} {line.unit}
-                              </td>
-                              <td className="whitespace-nowrap px-4 py-4 text-slate-600">
-                                {line.receivedQuantity} {line.unit}
-                              </td>
-                              <td className="whitespace-nowrap px-4 py-4">
-                                <span
-                                  className={
-                                    complete
-                                      ? "text-emerald-700"
-                                      : "font-semibold text-amber-800"
-                                  }
-                                >
-                                  {line.pendingQuantity} {line.unit}
+                              <td className="px-4 py-4">
+                                <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800">
+                                  {displayTeam(item.team)}
                                 </span>
                               </td>
-                              <td className="px-5 py-4">
-                                {complete ? (
-                                  <span className="text-sm font-medium text-emerald-700">
-                                    Fully received
-                                  </span>
-                                ) : fractional ? (
-                                  <span className="text-xs font-medium text-red-700">
-                                    Fractional balance needs correction
-                                  </span>
-                                ) : (
-                                  <div>
-                                    <input
-                                      type="number"
-                                      min="1"
-                                      max={line.pendingQuantity}
-                                      step="1"
-                                      inputMode="numeric"
-                                      aria-label={`Quantity received now for ${line.itemName}`}
-                                      aria-invalid={feedback?.kind === "error"}
-                                      value={rawQuantity}
-                                      onChange={(event) => {
-                                        setReceiptQuantities((current) => ({
-                                          ...current,
-                                          [line.lineId]: event.target.value,
-                                        }));
-                                        setReceiptErrors((current) => {
-                                          const next = { ...current };
-                                          delete next[purchase.requestId];
-                                          return next;
-                                        });
-                                      }}
-                                      className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100 sm:w-40"
-                                    />
-                                    {feedback && (
+                              <td className="px-4 py-4">
+                                <span
+                                  className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                                    item.category
+                                      ? "bg-slate-100 text-slate-700"
+                                      : "bg-amber-50 text-amber-800"
+                                  }`}
+                                >
+                                  {item.category || "Unassigned"}
+                                </span>
+                              </td>
+                              <td className="px-4 py-4">
+                                <div className="min-w-[140px]">
+                                  {quantity === null ? (
+                                    <>
+                                      <p className="text-sm font-semibold text-slate-500">
+                                        Not recorded
+                                      </p>
+                                      <p className="mt-1 text-[11px] text-slate-400">
+                                        No balance at this nest
+                                      </p>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <p className="text-lg font-bold leading-5 text-slate-900">
+                                        {Number(quantity).toLocaleString()}
+                                        <span className="ml-1.5 text-xs font-medium text-slate-500">
+                                          {item.stockUnit ?? item.uom}
+                                        </span>
+                                      </p>
                                       <p
-                                        className={`mt-1 max-w-xs text-xs ${
-                                          feedback.kind === "error"
-                                            ? "text-red-700"
-                                            : "text-slate-600"
+                                        className={`mt-1 text-[11px] font-semibold ${
+                                          hasStock
+                                            ? "text-emerald-700"
+                                            : "text-red-700"
                                         }`}
                                       >
-                                        {feedback.text}
+                                        {hasStock
+                                          ? "Available"
+                                          : "Out of stock"}
                                       </p>
-                                    )}
-                                  </div>
-                                )}
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-4 text-xs text-slate-500">
+                                {formatUpdatedAt(item.stockUpdatedAt)}
+                              </td>
+                              <td className="px-4 py-4">
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => openConsume(item)}
+                                    disabled={getAvailableQuantity(item) <= 0}
+                                    className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+                                  >
+                                    Consume
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => openCategory(item)}
+                                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                  >
+                                    {item.category
+                                      ? "Category"
+                                      : "Categorize"}
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -982,271 +1484,58 @@ export default function QuartermasterDashboardPage() {
                       </tbody>
                     </table>
                   </div>
+                </>
+              )}
 
-                  {pendingLines.length > 0 && (
-                    <label className="flex cursor-pointer items-start gap-3 border-t border-slate-100 bg-slate-50 px-5 py-4 text-sm text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={isVerified}
-                        onChange={(event) => {
-                          setVerifiedReceiptRequests((current) => ({
-                            ...current,
-                            [purchase.requestId]: event.target.checked,
-                          }));
-                          setReceiptErrors((current) => {
-                            const next = { ...current };
-                            delete next[purchase.requestId];
-                            return next;
-                          });
-                        }}
-                        className="mt-0.5 h-4 w-4 accent-emerald-700"
-                      />
-                      <span>
-                        <span className="block font-semibold text-slate-900">
-                          I checked the delivery against this manifest.
-                        </span>
-                        <span className="mt-0.5 block text-xs text-slate-500">
-                          Review all listed quantities, then acknowledge this
-                          receipt once.
-                        </span>
-                      </span>
-                    </label>
-                  )}
-
-                  {pendingLines.length > 0 && (
-                    <div className="flex flex-col justify-between gap-3 border-t border-slate-100 p-5 sm:flex-row sm:items-center">
-                      <div>
-                        <p className="text-sm text-slate-600">
-                          {pendingLines.length} item line(s) will be recorded
-                          together for {purchase.reference}.
-                        </p>
-                        {hasFractionalPending && (
-                          <p className="mt-1 text-xs font-medium text-red-700">
-                            This request has a fractional remaining balance
-                            from an earlier entry. Ask an administrator to
-                            correct it before acknowledging receipt.
-                          </p>
-                        )}
-                        {receiptErrors[purchase.requestId] && (
-                          <p
-                            role="alert"
-                            className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
-                          >
-                            {receiptErrors[purchase.requestId]}
-                          </p>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => void acknowledgePurchase(purchase)}
-                        disabled={
-                          !isVerified ||
-                          hasFractionalPending ||
-                          Boolean(receivingRequestId)
-                        }
-                        className="h-11 shrink-0 rounded-lg bg-emerald-700 px-5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                      >
-                        {receivingRequestId === purchase.requestId
-                          ? "Recording receipt…"
-                          : "Acknowledge all received items"}
-                      </button>
-                    </div>
-                  )}
-                </article>
-              );
-            })}
-          </section>
-        )}
-
-        <section className="mt-9 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-100 p-5">
-            <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
-              <div>
-                <h2 className="text-lg font-semibold">Inventory items</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Catalog items remain visible even if a stock balance has not
-                  been recorded at this nest.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={openAddItem}
-                  className="h-10 rounded-lg border border-emerald-200 px-4 text-sm font-semibold text-emerald-800 hover:bg-emerald-50"
-                >
-                  Add item and quantity
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openConsume()}
-                  disabled={availableItems.length === 0 || loading}
-                  className="h-10 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Consume an item
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-5 grid gap-3 md:grid-cols-[minmax(220px,1fr)_190px_220px]">
-              <label className="flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-3 text-slate-400">
-                <span aria-hidden="true" className="text-lg">
-                  ⌕
+              <footer className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/60 px-4 py-3 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                <span>
+                  {filteredItems.length === 0
+                    ? "No matching catalog items."
+                    : `Showing ${firstVisibleItem}–${lastVisibleItem} of ${filteredItems.length} matching items`}
+                  <span className="text-slate-400">
+                    {" "}
+                    · Catalog total: {catalogItems.length}
+                  </span>
                 </span>
-                <input
-                  type="search"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search catalog items..."
-                  aria-label="Search catalog items"
-                  className="min-w-0 flex-1 border-0 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400"
-                />
-              </label>
 
-              <label>
-                <span className="sr-only">Filter by team</span>
-                <select
-                  value={teamFilter}
-                  onChange={(event) =>
-                    setTeamFilter(event.target.value as TeamFilter)
-                  }
-                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
-                >
-                  <option value="">All teams</option>
-                  {teams.map((team) => (
-                    <option key={team} value={team}>
-                      {displayTeam(team)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
-                <span className="sr-only">Filter by category</span>
-                <select
-                  value={categoryFilter}
-                  onChange={(event) => setCategoryFilter(event.target.value)}
-                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
-                >
-                  <option value="">All categories</option>
-                  {categoryOptions.map((category) => (
-                    <option key={category} value={category}>
-                      {category}
-                    </option>
-                  ))}
-                  {catalogItems.some((item) => !item.category?.trim()) && (
-                    <option value="Unassigned">Unassigned</option>
-                  )}
-                </select>
-              </label>
-            </div>
-          </div>
-
-          {loading && !dashboard ? (
-            <div className="px-5 py-12 text-center text-sm text-slate-500">
-              Loading catalog…
-            </div>
-          ) : filteredItems.length === 0 ? (
-            <div className="px-5 py-12 text-center text-sm text-slate-500">
-              {error
-                ? "Dashboard data could not be loaded."
-                : "No catalog items match your filters."}
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[950px] border-collapse text-left">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <TableHeading>Item</TableHeading>
-                    <TableHeading>Team</TableHeading>
-                    <TableHeading>Category</TableHeading>
-                    <TableHeading>UOM</TableHeading>
-                    <TableHeading>
-                      Quantity at {assignedLocation?.code ?? "this nest"}
-                    </TableHeading>
-                    <TableHeading>Last updated</TableHeading>
-                    <TableHeading>Actions</TableHeading>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredItems.map((item) => (
-                    <tr
-                      key={item.id}
-                      className="border-t border-slate-100 hover:bg-slate-50/60"
+                {filteredItems.length > inventoryPageSize && (
+                  <nav
+                    className="flex items-center gap-2"
+                    aria-label="Inventory pagination"
+                  >
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setInventoryPage((page) => Math.max(1, page - 1))
+                      }
+                      disabled={inventoryPage === 1}
+                      aria-label="Previous inventory page"
+                      title="Previous page"
+                      className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-lg font-semibold text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      <td className="px-4 py-4">
-                        <p className="text-sm font-semibold text-slate-800">
-                          {item.name}
-                        </p>
-                        {item.code && (
-                          <p className="mt-1 font-mono text-xs text-slate-400">
-                            {item.code}
-                          </p>
-                        )}
-                      </td>
-                      <td className="px-4 py-4 text-sm text-slate-700">
-                        {displayTeam(item.team)}
-                      </td>
-                      <td className="px-4 py-4">
-                        <span
-                          className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                            item.category
-                              ? "bg-slate-100 text-slate-700"
-                              : "bg-amber-50 text-amber-800"
-                          }`}
-                        >
-                          {item.category || "Unassigned"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4 text-sm text-slate-600">
-                        {item.uom}
-                      </td>
-                      <td className="px-4 py-4 text-sm font-semibold text-slate-800">
-                        {item.stockQuantity === null
-                          ? "Not recorded"
-                          : Number(item.stockQuantity).toLocaleString()}
-                        {item.stockQuantity !== null && (
-                          <span className="ml-1 font-normal text-slate-500">
-                            {item.stockUnit ?? item.uom}
-                          </span>
-                        )}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-500">
-                        {formatUpdatedAt(item.stockUpdatedAt)}
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => openCategory(item)}
-                            className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                          >
-                            {item.category ? "Edit category" : "Categorize"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openConsume(item)}
-                            disabled={getAvailableQuantity(item) <= 0}
-                            className="rounded-lg border border-emerald-200 px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            Consume
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      ‹
+                    </button>
+                    <span className="min-w-24 text-center font-semibold text-slate-600">
+                      Page {inventoryPage} of {inventoryPageCount}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setInventoryPage((page) =>
+                          Math.min(inventoryPageCount, page + 1),
+                        )
+                      }
+                      disabled={inventoryPage === inventoryPageCount}
+                      aria-label="Next inventory page"
+                      title="Next page"
+                      className="flex h-9 w-9 items-center justify-center rounded-lg border border-emerald-200 bg-white text-lg font-semibold text-emerald-800 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      ›
+                    </button>
+                  </nav>
+                )}
+              </footer>
             </div>
-          )}
-
-          <div className="flex flex-col gap-1 border-t border-slate-100 px-5 py-3 text-xs text-slate-500 sm:flex-row sm:justify-between">
-            <span>
-              Showing {filteredItems.length} of {catalogItems.length} catalog
-              items.
-            </span>
-            <span>
-              Consumption is available only for items with a positive balance.
-            </span>
           </div>
         </section>
       </div>
@@ -1273,7 +1562,7 @@ export default function QuartermasterDashboardPage() {
                 }}
                 placeholder="Type item name or code"
                 autoComplete="off"
-                className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-900 placeholder:text-slate-400"
+                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400"
               />
             </label>
 
@@ -1362,7 +1651,7 @@ export default function QuartermasterDashboardPage() {
                 value={consumeQuantity}
                 onChange={(event) => setConsumeQuantity(event.target.value)}
                 disabled={!selectedConsumeItem || consuming}
-                className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-900 disabled:bg-slate-50"
+                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 disabled:bg-slate-50"
               />
             </label>
 
@@ -1375,7 +1664,7 @@ export default function QuartermasterDashboardPage() {
                 maxLength={500}
                 value={consumeNote}
                 onChange={(event) => setConsumeNote(event.target.value)}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
               />
             </label>
 
@@ -1452,7 +1741,7 @@ export default function QuartermasterDashboardPage() {
                   setNewItem({ ...newItem, name: event.target.value });
                 }}
                 placeholder="Type to search existing items, or enter a new item"
-                className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-900 placeholder:text-slate-400"
+                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400"
               />
             </label>
 
@@ -1477,7 +1766,9 @@ export default function QuartermasterDashboardPage() {
                     <span className="shrink-0 text-xs text-slate-500">
                       {item.stockQuantity === null
                         ? "No balance"
-                        : `${item.stockQuantity} ${item.stockUnit ?? item.uom}`}
+                        : `${item.stockQuantity} ${
+                            item.stockUnit ?? item.uom
+                          }`}
                     </span>
                   </button>
                 ))}
@@ -1521,7 +1812,7 @@ export default function QuartermasterDashboardPage() {
                     onChange={(event) =>
                       setNewItem({ ...newItem, code: event.target.value })
                     }
-                    className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-900"
+                    className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900"
                   />
                 </label>
 
@@ -1561,7 +1852,7 @@ export default function QuartermasterDashboardPage() {
                         setNewItem({ ...newItem, unit: event.target.value })
                       }
                       placeholder="Pieces, Pack, Bottle…"
-                      className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-900 placeholder:text-slate-400"
+                      className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400"
                     />
                   </label>
                 </div>
@@ -1601,7 +1892,7 @@ export default function QuartermasterDashboardPage() {
                 onChange={(event) =>
                   setNewItem({ ...newItem, quantity: event.target.value })
                 }
-                className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-900"
+                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900"
               />
             </label>
 
@@ -1621,6 +1912,42 @@ export default function QuartermasterDashboardPage() {
         </Modal>
       )}
     </main>
+  );
+}
+
+function BrowseButton({
+  label,
+  count,
+  active,
+  onClick,
+  icon,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+  icon: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`mb-1 flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
+        active
+          ? "bg-emerald-100 text-emerald-900"
+          : "text-slate-600 hover:bg-white"
+      }`}
+    >
+      <span className="flex items-center gap-2">
+        <span className="w-4 text-center text-sm" aria-hidden="true">
+          {icon}
+        </span>
+        {label}
+      </span>
+      <span className="rounded-full bg-white/80 px-2 py-0.5 text-xs text-slate-500">
+        {count}
+      </span>
+    </button>
   );
 }
 
@@ -1728,7 +2055,7 @@ function SummaryCard({
   iconClass: string;
 }) {
   return (
-    <article className="flex min-h-28 items-center gap-3 rounded-xl border border-slate-200 bg-white p-4">
+    <article className="flex min-h-24 items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <span
         className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-lg font-bold ${iconClass}`}
       >
@@ -1736,7 +2063,9 @@ function SummaryCard({
       </span>
       <div className="min-w-0">
         <p className="text-xs text-slate-500">{label}</p>
-        <p className="mt-1 text-2xl font-bold tracking-tight">{value}</p>
+        <p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
+          {value}
+        </p>
         <p className="mt-1 truncate text-xs text-slate-400">{detail}</p>
       </div>
     </article>
@@ -1745,7 +2074,7 @@ function SummaryCard({
 
 function TableHeading({ children }: { children: ReactNode }) {
   return (
-    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+    <th className="whitespace-nowrap px-4 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
       {children}
     </th>
   );
