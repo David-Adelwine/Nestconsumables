@@ -50,31 +50,36 @@ export default function RequestAccessPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-10 text-slate-900 sm:px-6">
-      <div className="mx-auto max-w-5xl">
-        <header className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-700 text-xl font-extrabold text-white">
-            N
+    <main className="min-h-screen bg-gradient-to-br from-slate-100 via-white to-emerald-50 px-4 py-8 text-slate-900 sm:px-6 sm:py-10">
+      <div className="mx-auto max-w-6xl">
+        <header className="flex items-center justify-between gap-3 rounded-2xl border border-white bg-white/90 px-4 py-3 shadow-sm backdrop-blur sm:px-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-700 text-xl font-extrabold text-white">
+              N
+            </div>
+            <div>
+              <p className="font-bold leading-tight">Nest Consumables</p>
+              <p className="mt-1 text-xs text-slate-500">
+                Inventory and procurement workspace
+              </p>
+            </div>
           </div>
-          <div>
-            <p className="font-bold leading-tight">Nest Consumables</p>
-            <p className="mt-1 text-xs text-slate-500">
-              Inventory and procurement workspace
-            </p>
-          </div>
+          <span className="hidden rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 sm:inline-flex">
+            Secure workspace access
+          </span>
         </header>
 
-        <div className="mt-10 grid gap-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
-          <section>
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">
+        <div className="mt-7 grid gap-6 lg:grid-cols-[0.92fr_1.08fr] lg:items-stretch">
+          <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-950 via-emerald-900 to-emerald-800 p-7 text-white shadow-xl shadow-emerald-950/15 sm:p-9">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-200">
               Account access
             </p>
 
-            <h1 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
+            <h1 className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">
               Access needs to be assigned
             </h1>
 
-            <p className="mt-4 max-w-lg text-sm leading-6 text-slate-600">
+            <p className="mt-4 max-w-lg text-sm leading-6 text-emerald-50/90">
               Your account is recognized, but it doesn’t have an application
               role yet. Request access from the IT Admin so they can review
               which parts of the workspace you need.
@@ -97,8 +102,10 @@ export default function RequestAccessPage() {
               </div>
             </div>
 
-            <div className="mt-8 border-t border-slate-200 pt-5">
-              <h2 className="text-sm font-semibold">What happens next?</h2>
+            <div className="mt-8 border-t border-white/20 pt-6">
+              <h2 className="text-sm font-bold text-white">
+                What happens next?
+              </h2>
 
               <ol className="mt-4 space-y-4">
                 <NextStep number="1" title="Submit your request">
@@ -115,15 +122,15 @@ export default function RequestAccessPage() {
 
             <Link
               href="/login"
-              className="mt-7 inline-flex text-sm font-semibold text-emerald-800 hover:text-emerald-950"
+              className="mt-7 inline-flex items-center rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/15"
             >
               ← Return to sign in
             </Link>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-xl shadow-slate-900/5 sm:p-8">
             {requestSubmitted ? (
-              <div className="py-4">
+              <div className="py-2 sm:py-4">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-xl font-bold text-emerald-800">
                   ✓
                 </div>
@@ -141,7 +148,7 @@ export default function RequestAccessPage() {
                   review. Your access remains inactive until a role is assigned.
                 </p>
 
-                <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-inner">
                   <p className="text-xs text-slate-500">Request reference</p>
                   <p className="mt-1 font-mono text-sm font-semibold">
                     {requestReference}
@@ -168,15 +175,18 @@ export default function RequestAccessPage() {
                 <button
                   type="button"
                   onClick={startAnotherRequest}
-                  className="mt-6 rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800"
+                  className="mt-6 min-h-12 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-200"
                 >
                   Back to request form
                 </button>
               </div>
             ) : (
               <>
-                <div className="mb-6">
-                  <h2 className="text-xl font-bold tracking-tight">
+                <div className="mb-6 border-b border-slate-100 pb-5">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">
+                    Access request
+                  </p>
+                  <h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">
                     Request application access
                   </h2>
                   <p className="mt-1 text-sm text-slate-500">
@@ -218,7 +228,7 @@ export default function RequestAccessPage() {
                         );
                         setNestCode("");
                       }}
-                      className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                      className="h-12 w-full rounded-xl border border-slate-300 bg-white px-3.5 text-sm font-medium text-slate-950 shadow-sm outline-none transition focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100"
                     >
                       <option value="">Choose a role</option>
                       <option value="nestLead">Nest Lead</option>
@@ -230,17 +240,13 @@ export default function RequestAccessPage() {
                   {needsNest && (
                     <label className="block">
                       <span className="mb-1.5 block text-xs font-semibold text-slate-700">
-                        Nest{" "}
-                        {requestedRole === "nestLead" ||
-                        requestedRole === "quarterMaster" ? (
-                          <span className="text-red-500">*</span>
-                        ) : null}
+                        Nest <span className="text-red-500">*</span>
                       </span>
                       <select
                         required
                         value={nestCode}
                         onChange={(event) => setNestCode(event.target.value)}
-                        className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                        className="h-12 w-full rounded-xl border border-slate-300 bg-white px-3.5 text-sm font-medium text-slate-950 shadow-sm outline-none transition focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100"
                       >
                         <option value="">Choose a nest</option>
                         {nests.map((nest) => (
@@ -271,7 +277,7 @@ export default function RequestAccessPage() {
                       value={reason}
                       onChange={(event) => setReason(event.target.value)}
                       placeholder="Briefly describe your responsibilities and the access you need."
-                      className="w-full resize-y rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                      className="w-full resize-y rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-500 focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100"
                     />
                   </label>
 
@@ -283,7 +289,7 @@ export default function RequestAccessPage() {
 
                   <button
                     type="submit"
-                    className="w-full rounded-lg bg-emerald-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-800"
+                    className="w-full min-h-12 rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-200"
                   >
                     Submit access request
                   </button>
@@ -293,7 +299,7 @@ export default function RequestAccessPage() {
           </section>
         </div>
 
-        <footer className="mt-10 border-t border-slate-200 pt-4 text-xs text-slate-400">
+        <footer className="mt-8 border-t border-slate-200/80 pt-4 text-center text-xs text-slate-500">
           Nest Consumables · Access requests
         </footer>
       </div>
@@ -316,8 +322,8 @@ function NextStep({
         {number}
       </span>
       <div>
-        <p className="text-sm font-semibold">{title}</p>
-        <p className="mt-1 text-xs leading-5 text-slate-500">{children}</p>
+        <p className="text-sm font-semibold text-white">{title}</p>
+        <p className="mt-1 text-xs leading-5 text-emerald-100/80">{children}</p>
       </div>
     </li>
   );
@@ -367,7 +373,7 @@ function FormField({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         autoComplete={autoComplete}
-        className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+        className="h-12 w-full rounded-xl border border-slate-300 bg-white px-3.5 text-sm font-medium text-slate-950 shadow-sm outline-none transition placeholder:text-slate-500 focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100"
       />
     </label>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Team = "flight" | "fulfilment" | "facilities";
 type TeamFilter = Team | "all";
@@ -49,6 +49,8 @@ type DashboardData = {
   pendingAccessRequests?: AccessRequest[];
 };
 
+const ITEMS_PER_PAGE = 40;
+
 type ReviewDecision = "approved" | "declined";
 
 type ReviewResponse = {
@@ -96,6 +98,7 @@ export default function NestLeadDashboardPage() {
   const [teamFilter, setTeamFilter] = useState<TeamFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [search, setSearch] = useState("");
+  const [inventoryPage, setInventoryPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [reviewError, setReviewError] = useState("");
@@ -246,6 +249,22 @@ export default function NestLeadDashboardPage() {
     });
   }, [items, teamFilter, categoryFilter, search]);
 
+  useEffect(() => {
+    setInventoryPage(1);
+  }, [selectedNestId, teamFilter, categoryFilter, search]);
+
+  const pageCount = Math.max(
+    1,
+    Math.ceil(filteredItems.length / ITEMS_PER_PAGE),
+  );
+  const pageStart = (inventoryPage - 1) * ITEMS_PER_PAGE;
+  const pageItems = filteredItems.slice(pageStart, pageStart + ITEMS_PER_PAGE);
+  const firstVisibleItem = filteredItems.length === 0 ? 0 : pageStart + 1;
+  const lastVisibleItem = Math.min(
+    pageStart + ITEMS_PER_PAGE,
+    filteredItems.length,
+  );
+
   const trackedCount = items.filter(
     (item) => item.stockQuantity !== null,
   ).length;
@@ -271,7 +290,7 @@ export default function NestLeadDashboardPage() {
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-900 sm:px-6 lg:px-10">
       <div className="mx-auto max-w-7xl">
-        <header className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
+        <header className="flex flex-col justify-between gap-5 rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-white p-6 shadow-sm sm:flex-row sm:items-end">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">
               Nest lead workspace
@@ -301,7 +320,7 @@ export default function NestLeadDashboardPage() {
                   setReviewWarning("");
                   setReviewMessage("");
                 }}
-                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700"
+                className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
               >
                 {availableNests.map((nest) => (
                   <option key={nest.id} value={nest.id}>
@@ -330,7 +349,7 @@ export default function NestLeadDashboardPage() {
           </div>
         )}
 
-        <section className="mt-7 flex flex-col gap-4 rounded-xl border border-emerald-100 bg-emerald-50/70 p-5 sm:flex-row sm:items-center">
+        <section className="mt-7 flex flex-col gap-4 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-white p-5 shadow-sm sm:flex-row sm:items-center">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-2xl text-emerald-700">
             ⌖
           </div>
@@ -365,7 +384,7 @@ export default function NestLeadDashboardPage() {
 
         <section
           aria-label="Nest inventory summary"
-          className="mt-5 grid gap-3 sm:grid-cols-3"
+          className="mt-5 grid gap-4 sm:grid-cols-3"
         >
           <SummaryCard
             label="Catalog items"
@@ -394,7 +413,7 @@ export default function NestLeadDashboardPage() {
 
         <section
           aria-label="Access requests"
-          className="mt-8 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+          className="mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md"
         >
           <div className="flex flex-col gap-2 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -508,7 +527,7 @@ export default function NestLeadDashboardPage() {
                           onClick={() =>
                             void handleReview(accessRequest.id, "declined")
                           }
-                          className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {isReviewing ? "Saving…" : "Decline"}
                         </button>
@@ -519,7 +538,7 @@ export default function NestLeadDashboardPage() {
                           onClick={() =>
                             void handleReview(accessRequest.id, "approved")
                           }
-                          className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="min-h-11 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {isReviewing ? "Saving…" : "Approve"}
                         </button>
@@ -533,8 +552,15 @@ export default function NestLeadDashboardPage() {
         </section>
 
         <section className="mt-9">
-          <div className="mb-4">
-            <h2 className="text-lg font-semibold">Inventory by team</h2>
+          <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">
+                Inventory overview
+              </p>
+              <h2 className="mt-1 text-xl font-bold tracking-tight text-slate-950">
+                Inventory by team
+              </h2>
+            </div>
             <p className="mt-1 text-sm text-slate-500">
               Choose a team to review its catalog and recorded stock at this
               nest.
@@ -555,9 +581,9 @@ export default function NestLeadDashboardPage() {
                       setCategoryFilter("");
                     }}
                     aria-pressed={selected}
-                    className={`rounded-xl border bg-white p-4 text-left transition ${
+                    className={`rounded-2xl border bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
                       selected
-                        ? "border-emerald-500 ring-2 ring-emerald-100"
+                        ? "border-emerald-500 bg-emerald-50/40 ring-2 ring-emerald-100"
                         : "border-slate-200 hover:border-emerald-300"
                     }`}
                   >
@@ -599,24 +625,29 @@ export default function NestLeadDashboardPage() {
           </div>
         </section>
 
-        <section className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-100 p-5">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                {assignedNest?.code ?? "Assigned nest"}
-                {teamFilter !== "all" ? ` · ${teamLabels[teamFilter]}` : ""}
-              </p>
-              <h2 className="mt-1 text-lg font-semibold">
-                Catalog and nest stock
-              </h2>
-              <p className="mt-1 text-sm text-slate-500">
-                Stock is shown for your selected nest. Catalog items are
-                limited to your assigned team access.
-              </p>
+        <section className="mt-6 overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-lg shadow-emerald-950/5 ring-1 ring-emerald-50">
+          <div className="border-b border-emerald-100 bg-gradient-to-r from-emerald-50/90 to-white p-5 sm:p-6">
+            <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">
+                  {assignedNest?.code ?? "Assigned nest"}
+                  {teamFilter !== "all" ? ` · ${teamLabels[teamFilter]}` : ""}
+                </p>
+                <h2 className="mt-1 text-xl font-bold tracking-tight text-slate-950">
+                  Catalog and nest stock
+                </h2>
+                <p className="mt-1 max-w-2xl text-sm text-slate-600">
+                  Review stock levels and catalog details for this nest. Items
+                  with no stock record remain visible.
+                </p>
+              </div>
+              <span className="w-fit rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-sm">
+                {loading ? "Loading…" : `${filteredItems.length} items`}
+              </span>
             </div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-[minmax(220px,1fr)_200px_220px]">
-              <label className="flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-3 text-slate-400">
+            <div className="mt-5 grid gap-3 rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm md:grid-cols-[minmax(220px,1fr)_200px_220px]">
+              <label className="flex h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-slate-500 shadow-sm focus-within:border-emerald-600 focus-within:ring-4 focus-within:ring-emerald-100">
                 <span aria-hidden="true" className="text-lg">
                   ⌕
                 </span>
@@ -626,7 +657,7 @@ export default function NestLeadDashboardPage() {
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search item, code, team..."
                   aria-label="Search the catalog"
-                  className="min-w-0 flex-1 border-0 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400"
+                  className="min-w-0 flex-1 border-0 bg-transparent text-sm font-medium text-slate-950 outline-none placeholder:text-slate-500"
                 />
               </label>
 
@@ -638,7 +669,7 @@ export default function NestLeadDashboardPage() {
                     setTeamFilter(event.target.value as TeamFilter);
                     setCategoryFilter("");
                   }}
-                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
+                  className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-medium text-slate-950 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
                 >
                   <option value="all">All assigned teams</option>
                   {allowedTeams.map((team) => (
@@ -654,7 +685,7 @@ export default function NestLeadDashboardPage() {
                 <select
                   value={categoryFilter}
                   onChange={(event) => setCategoryFilter(event.target.value)}
-                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"
+                  className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-medium text-slate-950 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
                 >
                   <option value="">All categories</option>
                   {categoryOptions.map((category) => (
@@ -668,93 +699,142 @@ export default function NestLeadDashboardPage() {
           </div>
 
           {loading && !dashboard ? (
-            <div className="px-5 py-12 text-center text-sm text-slate-500">
+            <div className="px-5 py-12 text-center text-sm font-medium text-slate-500">
               Loading nest inventory…
             </div>
           ) : filteredItems.length === 0 ? (
-            <div className="px-5 py-12 text-center text-sm text-slate-500">
-              {error
-                ? "Dashboard data could not be loaded."
-                : "No catalog items match your search or filters."}
+            <div className="m-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-5 py-12 text-center sm:m-5">
+              <p className="text-base font-semibold text-slate-800">
+                No catalog items found
+              </p>
+              <p className="mt-1 text-sm text-slate-500">
+                {error
+                  ? "Dashboard data could not be loaded."
+                  : "Try another search or clear one of the filters."}
+              </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[850px] border-collapse text-left">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <TableHeading>Item</TableHeading>
-                    <TableHeading>Team</TableHeading>
-                    <TableHeading>Category</TableHeading>
-                    <TableHeading>UOM</TableHeading>
-                    <TableHeading>
-                      Stock at {assignedNest?.code ?? "nest"}
-                    </TableHeading>
-                    <TableHeading>Last updated</TableHeading>
-                  </tr>
-                </thead>
+            <div className="space-y-3 bg-slate-50/70 p-4 sm:p-5">
+              {pageItems.map((item) => {
+                const hasStock = item.stockQuantity !== null;
+                const stockClass = !hasStock
+                  ? "bg-slate-100 text-slate-700"
+                  : item.stockQuantity! <= 0
+                    ? "bg-rose-50 text-rose-700"
+                    : "bg-emerald-50 text-emerald-800";
 
-                <tbody>
-                  {filteredItems.map((item) => {
-                    const hasStock = item.stockQuantity !== null;
-
-                    return (
-                      <tr
-                        key={item.id}
-                        className="border-t border-slate-100 hover:bg-slate-50/60"
-                      >
-                        <td className="px-4 py-4">
-                          <p className="text-sm font-semibold text-slate-800">
-                            {item.name}
-                          </p>
-                          <p className="mt-1 font-mono text-xs text-slate-400">
-                            {item.code}
-                          </p>
-                        </td>
-
-                        <td className="px-4 py-4 text-sm text-slate-700">
-                          {teamLabels[item.team]}
-                        </td>
-
-                        <td className="px-4 py-4">
+                return (
+                  <article
+                    key={item.id}
+                    className="rounded-2xl border border-slate-200 border-l-4 border-l-emerald-500 bg-white p-4 shadow-sm transition hover:border-emerald-300 hover:shadow-md sm:p-5"
+                  >
+                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(220px,0.55fr)] lg:items-center">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <h3 className="break-words text-base font-bold text-slate-950">
+                              {item.name}
+                            </h3>
+                            <p className="mt-1 font-mono text-xs text-slate-500">
+                              {item.code || "No item code"}
+                            </p>
+                          </div>
                           <span
-                            className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                            className={`rounded-full px-3 py-1.5 text-xs font-bold ${stockClass}`}
+                          >
+                            {hasStock
+                              ? item.stockQuantity! <= 0
+                                ? `0 ${item.stockUnit ?? item.uom} · Out of stock`
+                                : `${item.stockQuantity!.toLocaleString()} ${item.stockUnit ?? item.uom} in stock`
+                              : "Not tracked here"}
+                          </span>
+                        </div>
+
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          <span
+                            className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold ${teamStyle(item.team)}`}
+                          >
+                            {teamIcon(item.team)} {teamLabels[item.team]}
+                          </span>
+                          <span
+                            className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold ${
                               item.category
-                                ? "bg-slate-100 text-slate-700"
+                                ? "bg-violet-50 text-violet-800"
                                 : "bg-amber-50 text-amber-800"
                             }`}
                           >
                             {item.category ?? "Unassigned"}
                           </span>
-                        </td>
+                          <span className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-700">
+                            Unit: {item.uom}
+                          </span>
+                        </div>
+                      </div>
 
-                        <td className="px-4 py-4 text-sm text-slate-600">
-                          {item.uom}
-                        </td>
-
-                        <td className="px-4 py-4 text-sm">
-                          {hasStock ? (
-                            <span className="font-semibold text-slate-800">
-                              {item.stockQuantity?.toLocaleString()}{" "}
-                              <span className="font-normal text-slate-500">
-                                {item.stockUnit ?? item.uom}
-                              </span>
-                            </span>
-                          ) : (
-                            <span className="text-slate-400">
-                              Not tracked here
-                            </span>
-                          )}
-                        </td>
-
-                        <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-500">
-                          {formatUpdatedAt(item.stockUpdatedAt)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                      <div className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Stock record
+                        </p>
+                        <p className="text-sm font-bold text-slate-900">
+                          {hasStock
+                            ? `${item.stockQuantity!.toLocaleString()} ${item.stockUnit ?? item.uom}`
+                            : "No balance recorded"}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          Last updated {formatUpdatedAt(item.stockUpdatedAt)}
+                        </p>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
+          )}
+
+          {filteredItems.length > 0 && (
+            <nav
+              aria-label="Inventory item pages"
+              className="flex flex-col gap-3 border-t border-slate-200 bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5"
+            >
+              <p className="text-sm text-slate-600">
+                Showing{" "}
+                <span className="font-bold text-slate-900">
+                  {firstVisibleItem}–{lastVisibleItem}
+                </span>{" "}
+                of{" "}
+                <span className="font-bold text-slate-900">
+                  {filteredItems.length}
+                </span>{" "}
+                items
+              </p>
+              <div className="flex items-center justify-between gap-3 sm:justify-end">
+                <button
+                  type="button"
+                  aria-label="Previous inventory page"
+                  onClick={() =>
+                    setInventoryPage((page) => Math.max(1, page - 1))
+                  }
+                  disabled={inventoryPage <= 1}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-xl font-bold text-slate-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  ‹
+                </button>
+                <span className="min-w-24 text-center text-sm font-semibold text-slate-700">
+                  Page {inventoryPage} of {pageCount}
+                </span>
+                <button
+                  type="button"
+                  aria-label="Next inventory page"
+                  onClick={() =>
+                    setInventoryPage((page) => Math.min(pageCount, page + 1))
+                  }
+                  disabled={inventoryPage >= pageCount}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-xl font-bold text-slate-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  ›
+                </button>
+              </div>
+            </nav>
           )}
 
           <div className="flex flex-col gap-1 border-t border-slate-100 px-5 py-3 text-xs text-slate-500 sm:flex-row sm:justify-between">
@@ -789,7 +869,7 @@ function SummaryCard({
   iconClass: string;
 }) {
   return (
-    <article className="flex min-h-28 items-center gap-3 rounded-xl border border-slate-200 bg-white p-4">
+    <article className="flex min-h-28 items-center gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
       <span
         className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-lg font-bold ${iconClass}`}
       >
@@ -802,13 +882,5 @@ function SummaryCard({
         <p className="mt-1 truncate text-xs text-slate-400">{detail}</p>
       </div>
     </article>
-  );
-}
-
-function TableHeading({ children }: { children: ReactNode }) {
-  return (
-    <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-      {children}
-    </th>
   );
 }
