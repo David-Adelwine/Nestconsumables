@@ -370,7 +370,7 @@ export default function StockPlanBuilderPage() {
               <input
                 value={planName}
                 onChange={(event) => setPlanName(event.target.value)}
-                className="h-10 w-full rounded-lg border px-3 text-sm"
+                className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm text-gray-900 bg-white placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
               />
             </label>
 
@@ -379,7 +379,7 @@ export default function StockPlanBuilderPage() {
               <select
                 value={country}
                 onChange={(event) => void load(event.target.value)}
-                className="h-10 w-full rounded-lg border bg-white px-3 text-sm"
+                className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
               >
                 {(data?.countries ?? []).map((value) => (
                   <option key={value} value={value}>
@@ -398,7 +398,7 @@ export default function StockPlanBuilderPage() {
                     event.target.value as "monthly" | "quarterly",
                   )
                 }
-                className="h-10 w-full rounded-lg border bg-white px-3 text-sm"
+                className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
               >
                 <option value="quarterly">Quarterly</option>
                 <option value="monthly">Monthly</option>
@@ -411,7 +411,7 @@ export default function StockPlanBuilderPage() {
                 value={period}
                 onChange={(event) => setPeriod(event.target.value)}
                 placeholder={currentQuarter()}
-                className="h-10 w-full rounded-lg border px-3 text-sm"
+                className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm text-gray-900 bg-white placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
               />
             </label>
 
@@ -420,7 +420,7 @@ export default function StockPlanBuilderPage() {
               <input
                 value={currency}
                 readOnly
-                className="h-10 w-full rounded-lg border bg-gray-50 px-3 text-sm"
+                className="h-10 w-full rounded-lg border border-gray-300 bg-gray-50 px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
               />
             </label>
           </div>
@@ -482,7 +482,7 @@ export default function StockPlanBuilderPage() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search catalog"
-              className="h-10 rounded-lg border px-3 text-sm"
+              className="h-10 rounded-lg border border-gray-300 px-3 text-sm text-gray-900 bg-white placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
             />
           </div>
 
@@ -493,7 +493,7 @@ export default function StockPlanBuilderPage() {
                 setTeamFilter(event.target.value);
                 setCategoryFilter("");
               }}
-              className="h-10 rounded-lg border bg-white px-3 text-sm"
+              className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
             >
               <option value="">All teams</option>
               {teams.map((team) => (
@@ -506,7 +506,7 @@ export default function StockPlanBuilderPage() {
             <select
               value={categoryFilter}
               onChange={(event) => setCategoryFilter(event.target.value)}
-              className="h-10 rounded-lg border bg-white px-3 text-sm"
+              className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
             >
               <option value="">All categories</option>
               {categoryOptions.map((category) => (
@@ -520,7 +520,7 @@ export default function StockPlanBuilderPage() {
               <select
                 value={selectedItemId}
                 onChange={(event) => setSelectedItemId(event.target.value)}
-                className="h-10 min-w-0 flex-1 rounded-lg border bg-white px-3 text-sm"
+                className="h-10 min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
               >
                 <option value="">Choose an item</option>
                 {availableCatalog.map((item) => (
@@ -603,7 +603,7 @@ export default function StockPlanBuilderPage() {
                             )
                           }
                           aria-label={`${item.name} quantity for ${nest.code}`}
-                          className="h-9 w-20 rounded border px-2"
+                          className="h-9 w-20 rounded border border-gray-300 bg-white px-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
                         />
                       </td>
                     ))}

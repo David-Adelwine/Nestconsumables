@@ -221,8 +221,6 @@ export async function GET(request: Request) {
       );
     }
 
-    // Load all active items for the country. Stock quantity is optional and
-    // does not determine whether an item appears in the catalog.
     const { data: itemData, error: itemError } = await supabase
       .from("app_items")
       .select("item_id, item_code, product_name, team, subcategory, unit")
@@ -307,10 +305,9 @@ export async function GET(request: Request) {
 
       if (lineError) throw new Error(lineError.message);
 
-      const lines = (lineData ?? []).filter(
-        (line) => Number(line.ordered_quantity) > Number(line.received_quantity),
-      );
+      const lines = lineData ?? [];
       const receiptItemIds = [...new Set(lines.map((line) => line.item_id))];
+
       let receiptItems: Array<{
         item_id: string;
         product_name: string;
@@ -333,28 +330,31 @@ export async function GET(request: Request) {
       );
 
       pendingReceipts = lines.flatMap((line) => {
-        const request = requestById.get(line.request_id);
+        const purchaseRequest = requestById.get(line.request_id);
         const item = receiptItemById.get(line.item_id);
-        if (!request || !item) return [];
+
+        if (!purchaseRequest || !item) return [];
 
         const orderedQuantity = Number(line.ordered_quantity);
         const receivedQuantity = Number(line.received_quantity);
 
-        return [{
-          lineId: line.line_id,
-          requestId: line.request_id,
-          reference: request.reference,
-          status: request.status,
-          createdAt: request.created_at,
-          itemId: line.item_id,
-          itemName: item.product_name,
-          itemCode: item.item_code,
-          team: item.team,
-          unit: line.unit,
-          orderedQuantity,
-          receivedQuantity,
-          pendingQuantity: orderedQuantity - receivedQuantity,
-        }];
+        return [
+          {
+            lineId: line.line_id,
+            requestId: line.request_id,
+            reference: purchaseRequest.reference,
+            status: purchaseRequest.status,
+            createdAt: purchaseRequest.created_at,
+            itemId: line.item_id,
+            itemName: item.product_name,
+            itemCode: item.item_code,
+            team: item.team,
+            unit: line.unit,
+            orderedQuantity,
+            receivedQuantity,
+            pendingQuantity: orderedQuantity - receivedQuantity,
+          },
+        ];
       });
     }
 
@@ -456,40 +456,185 @@ export async function POST(request: Request) {
       );
     }
 
-    if (action === "acknowledge_receipt") {
-      const lineId = String(body.lineId ?? "").trim();
-      const quantity = Number(body.quantity);
+    if (action === "acknowledge_request_receipt") {
+      const requestId = String(body.requestId ?? "").trim();
+      const uuidPattern =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const nestCode = formatNestCode(nest.nest_key, nest.nest_id);
 
-      if (
-        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(lineId) ||
-        !Number.isFinite(quantity) ||
-        quantity <= 0
-      ) {
+      if (!uuidPattern.test(requestId) || !Array.isArray(body.lines)) {
         return NextResponse.json(
-          { error: "Select a purchase line and enter a valid received quantity." },
+          {
+            error:
+              "Select a valid purchase and include its received quantities.",
+          },
           { status: 400 },
         );
       }
 
-      const { data, error } = await supabase.rpc(
-        "qm_receive_purchase_line",
-        {
-          p_line_id: lineId,
-          p_nest_id: nest.nest_id,
-          p_quantity: quantity,
-        },
-      );
+      const { data: purchase, error: purchaseError } = await supabase
+        .from("app_purchase_requests")
+        .select("request_id, status")
+        .eq("request_id", requestId)
+        .eq("nest_id", nest.nest_id)
+        .maybeSingle();
 
-      if (error) {
-        const conflict = /pending|exceeds|waiting for receipt/i.test(error.message);
-        const notFound = /not found/i.test(error.message);
+      if (purchaseError) throw new Error(purchaseError.message);
+
+      if (!purchase) {
         return NextResponse.json(
-          { error: error.message },
-          { status: conflict ? 409 : notFound ? 404 : 400 },
+          { error: "Purchase request not found at this nest." },
+          { status: 404 },
         );
       }
 
-      return NextResponse.json({ success: true, receipt: data });
+      if (!["ordered", "partially_received"].includes(purchase.status)) {
+        return NextResponse.json(
+          { error: "This purchase is not waiting for receipt." },
+          { status: 409 },
+        );
+      }
+
+      const { data: requestLines, error: requestLinesError } = await supabase
+        .from("app_purchase_request_lines")
+        .select(
+          "line_id, item_id, ordered_quantity, received_quantity, unit",
+        )
+        .eq("request_id", requestId);
+
+      if (requestLinesError) throw new Error(requestLinesError.message);
+
+      const pendingLines = (requestLines ?? []).filter(
+        (line) =>
+          Number(line.ordered_quantity) > Number(line.received_quantity),
+      );
+
+      const submittedLines = body.lines as Array<Record<string, unknown>>;
+      const submittedIds = submittedLines.map((line) =>
+        String(line?.lineId ?? "").trim(),
+      );
+
+      if (
+        pendingLines.length === 0 ||
+        submittedIds.some((id) => !uuidPattern.test(id)) ||
+        new Set(submittedIds).size !== submittedIds.length ||
+        submittedIds.length !== pendingLines.length
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "The receipt manifest changed. Reload it and review the current quantities.",
+          },
+          { status: 409 },
+        );
+      }
+
+      const itemIds = [...new Set(pendingLines.map((line) => line.item_id))];
+      const { data: itemData, error: itemError } = await supabase
+        .from("app_items")
+        .select("item_id, product_name")
+        .in("item_id", itemIds);
+
+      if (itemError) throw new Error(itemError.message);
+
+      const itemNameById = new Map(
+        (itemData ?? []).map((item) => [item.item_id, item.product_name]),
+      );
+
+      const submittedById = new Map(
+        submittedLines.map((line) => [
+          String(line.lineId).trim(),
+          Number(line.quantity),
+        ]),
+      );
+
+      const receipts: Array<{ lineId: string; quantity: number }> = [];
+
+      for (const line of pendingLines) {
+        const orderedQuantity = Number(line.ordered_quantity);
+        const receivedQuantity = Number(line.received_quantity);
+        const pendingQuantity = orderedQuantity - receivedQuantity;
+        const quantity = submittedById.get(line.line_id);
+        const itemName = itemNameById.get(line.item_id) ?? "this item";
+        const unit = String(line.unit ?? "unit");
+
+        if (
+          !Number.isSafeInteger(orderedQuantity) ||
+          !Number.isSafeInteger(receivedQuantity) ||
+          !Number.isSafeInteger(pendingQuantity)
+        ) {
+          return NextResponse.json(
+            {
+              error:
+                "This purchase has a fractional remaining balance from an earlier entry. Ask an administrator to correct it before acknowledging receipt.",
+            },
+            { status: 409 },
+          );
+        }
+
+        if (quantity === undefined || !Number.isSafeInteger(quantity)) {
+          return NextResponse.json(
+            {
+              error:
+                "Enter a whole-number quantity. Fractional receipts are not allowed.",
+            },
+            { status: 400 },
+          );
+        }
+
+        if (quantity <= 0) {
+          return NextResponse.json(
+            {
+              error: `Enter at least 1 ${unit} for ${itemName}.`,
+            },
+            { status: 400 },
+          );
+        }
+
+        if (quantity > pendingQuantity) {
+          const excess = quantity - pendingQuantity;
+
+          return NextResponse.json(
+            {
+              error: `You're receiving ${excess} ${unit} more than the ${pendingQuantity} ${unit} still expected for ${itemName} at ${nestCode}. You can receive up to ${pendingQuantity} ${unit}.`,
+            },
+            { status: 400 },
+          );
+        }
+
+        receipts.push({ lineId: line.line_id, quantity });
+      }
+
+      let acknowledgedCount = 0;
+
+      for (const receipt of receipts) {
+        const { error } = await supabase.rpc("qm_receive_purchase_line", {
+          p_line_id: receipt.lineId,
+          p_nest_id: nest.nest_id,
+          p_quantity: receipt.quantity,
+        });
+
+        if (error) {
+          const conflict = /pending|exceeds|waiting for receipt/i.test(
+            error.message,
+          );
+
+          return NextResponse.json(
+            {
+              error: `${acknowledgedCount} of ${receipts.length} item line(s) were acknowledged before an error: ${error.message}. Reload the manifest and review the remaining quantities.`,
+              acknowledgedCount,
+            },
+            { status: conflict ? 409 : 400 },
+          );
+        }
+
+        acknowledgedCount += 1;
+      }
+
+      return NextResponse.json({
+        success: true,
+        acknowledgedCount,
+      });
     }
 
     if (action === "update_category") {

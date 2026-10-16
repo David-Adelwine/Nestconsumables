@@ -29,6 +29,7 @@ type OrderLine = {
   itemId: string;
   item: CatalogItem;
   quantity: number;
+  unitCost: string;
 };
 
 type DashboardData = {
@@ -79,6 +80,7 @@ export default function ProcurementPage() {
     category: "",
     unit: "Pieces",
     unitCost: "",
+    quantity: "1",
   });
 
   async function load(nextNestId = "") {
@@ -151,16 +153,12 @@ export default function ProcurementPage() {
   }, [items, search, teamFilter, categoryFilter]);
 
   const orderTotal = orderLines.reduce(
-    (sum, line) => sum + (line.item.unitCost ?? 0) * line.quantity,
+    (sum, line) =>
+      sum + (Number(line.unitCost) || 0) * (Number(line.quantity) || 0),
     0,
   );
 
   function addToOrder(item: CatalogItem) {
-    if (item.unitCost === null) {
-      setNotice(`Set a price for ${item.name} before adding it to an order.`);
-      return;
-    }
-
     setOrderLines((current) => {
       const existing = current.find((line) => line.itemId === item.id);
 
@@ -172,8 +170,17 @@ export default function ProcurementPage() {
         );
       }
 
-      return [...current, { itemId: item.id, item, quantity: 1 }];
+      return [
+        ...current,
+        {
+          itemId: item.id,
+          item,
+          quantity: 1,
+          unitCost: item.unitCost === null ? "" : String(item.unitCost),
+        },
+      ];
     });
+    setNotice(`${item.name} added to the purchase cart.`);
   }
 
   async function updatePrice(item: CatalogItem) {
@@ -208,6 +215,17 @@ export default function ProcurementPage() {
   async function addCatalogItem(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
+    const quantity = Number(newItem.quantity);
+    const unitCost = Number(newItem.unitCost);
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      setNotice("Enter a whole-number purchase quantity of at least 1.");
+      return;
+    }
+    if (!Number.isFinite(unitCost) || unitCost < 0) {
+      setNotice("Enter a purchase price of zero or greater.");
+      return;
+    }
+
     const response = await fetch("/api/procurement/dashboard", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -215,7 +233,8 @@ export default function ProcurementPage() {
         action: "add_item",
         nestId,
         ...newItem,
-        unitCost: newItem.unitCost || null,
+        unitCost,
+        quantity,
       }),
     });
     const result = await response.json();
@@ -225,6 +244,22 @@ export default function ProcurementPage() {
       return;
     }
 
+    const createdItem: CatalogItem = {
+      id: result.itemId,
+      code: result.itemCode ?? newItem.code,
+      name: newItem.name.trim(),
+      team: newItem.team,
+      category: newItem.team === "facilities" ? newItem.category.trim() || "Unassigned" : null,
+      uom: newItem.unit.trim(),
+      unitCost,
+      currencyCode: currency,
+      quantity: null,
+      updatedAt: null,
+    };
+    setOrderLines((current) => [
+      ...current.filter((line) => line.itemId !== createdItem.id),
+      { itemId: createdItem.id, item: createdItem, quantity, unitCost: String(unitCost) },
+    ]);
     setNewItem({
       code: "",
       name: "",
@@ -232,13 +267,25 @@ export default function ProcurementPage() {
       category: "",
       unit: "Pieces",
       unitCost: "",
+      quantity: "1",
     });
-    setNotice("Catalog item added.");
+    setNotice(`${createdItem.name} was added to the catalog and purchase cart.`);
     await load(nestId);
   }
 
   async function submitOrder() {
     if (orderLines.length === 0) return;
+    const invalidLine = orderLines.find((line) =>
+      !Number.isInteger(Number(line.quantity)) ||
+      Number(line.quantity) <= 0 ||
+      line.unitCost.trim() === "" ||
+      !Number.isFinite(Number(line.unitCost)) ||
+      Number(line.unitCost) < 0,
+    );
+    if (invalidLine) {
+      setNotice(`Enter a valid quantity and purchase price for ${invalidLine.item.name}.`);
+      return;
+    }
 
     const response = await fetch("/api/procurement/dashboard", {
       method: "POST",
@@ -248,7 +295,8 @@ export default function ProcurementPage() {
         nestId,
         lines: orderLines.map((line) => ({
           itemId: line.itemId,
-          quantity: line.quantity,
+          quantity: Number(line.quantity),
+          unitCost: Number(line.unitCost),
         })),
       }),
     });
@@ -286,8 +334,7 @@ export default function ProcurementPage() {
             Purchase for a location
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-gray-500">
-            Search the catalog, review nest stock, update item prices, and
-            submit purchases for receipt at the selected nest.
+            Search the catalog, add existing or new items to the cart, set purchase quantities and prices, and submit them for receipt at the selected nest.
           </p>
         </div>
 
@@ -296,7 +343,7 @@ export default function ProcurementPage() {
           <select
             value={nestId}
             onChange={(event) => changeNest(event.target.value)}
-            className="h-10 min-w-64 rounded-lg border border-gray-200 bg-white px-3 text-sm"
+            className="h-10 min-w-64 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
           >
             {(data?.nests ?? []).map((nest) => (
               <option key={nest.id} value={nest.id}>
@@ -337,7 +384,7 @@ export default function ProcurementPage() {
             {data?.selectedNest.code} · {data?.selectedNest.name}
           </h2>
           <p className="mt-1 text-xs text-gray-500">
-            Prices and totals are shown in {currency}.
+            Purchase prices are captured per order in {currency}.
           </p>
         </div>
         <span className="rounded-full bg-white px-3 py-1.5 text-xs font-medium text-amber-800 sm:ml-auto">
@@ -357,9 +404,9 @@ export default function ProcurementPage() {
           detail={`Stock records at ${data?.selectedNest.code ?? "selected nest"}`}
         />
         <SummaryCard
-          label="Purchase draft"
+          label="Purchase cart"
           value={formatMoney(orderTotal, currency)}
-          detail={`${orderLines.length} items in the draft`}
+          detail={`${orderLines.length} items in the cart`}
         />
       </section>
 
@@ -390,7 +437,7 @@ export default function ProcurementPage() {
                 onChange={(event) =>
                   setNewItem({ ...newItem, name: event.target.value })
                 }
-                className="h-10 rounded-lg border px-3 text-sm md:col-span-2"
+                className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 md:col-span-2 placeholder:text-gray-400 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
               />
               <input
                 placeholder="Item code (optional)"
@@ -398,7 +445,7 @@ export default function ProcurementPage() {
                 onChange={(event) =>
                   setNewItem({ ...newItem, code: event.target.value })
                 }
-                className="h-10 rounded-lg border px-3 text-sm"
+                className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
               />
               <select
                 value={newItem.team}
@@ -408,7 +455,7 @@ export default function ProcurementPage() {
                     team: event.target.value as Team,
                   })
                 }
-                className="h-10 rounded-lg border bg-white px-3 text-sm"
+                className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
               >
                 <option value="flight">Flight</option>
                 <option value="fulfilment">Fulfilment</option>
@@ -421,18 +468,31 @@ export default function ProcurementPage() {
                 onChange={(event) =>
                   setNewItem({ ...newItem, unit: event.target.value })
                 }
-                className="h-10 rounded-lg border px-3 text-sm"
+                className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
               />
               <input
+                required
                 type="number"
                 min="0"
                 step="0.01"
-                placeholder={`Price (${currency})`}
+                placeholder={`Purchase price (${currency})`}
                 value={newItem.unitCost}
                 onChange={(event) =>
                   setNewItem({ ...newItem, unitCost: event.target.value })
                 }
-                className="h-10 rounded-lg border px-3 text-sm"
+                className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+              />
+              <input
+                required
+                type="number"
+                min="1"
+                step="1"
+                placeholder="Whole-number quantity"
+                value={newItem.quantity}
+                onChange={(event) =>
+                  setNewItem({ ...newItem, quantity: event.target.value })
+                }
+                className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
               />
               {newItem.team === "facilities" && (
                 <input
@@ -441,7 +501,7 @@ export default function ProcurementPage() {
                   onChange={(event) =>
                     setNewItem({ ...newItem, category: event.target.value })
                   }
-                  className="h-10 rounded-lg border px-3 text-sm md:col-span-2"
+                  className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 md:col-span-2 placeholder:text-gray-400 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
                 />
               )}
               <button
@@ -458,7 +518,7 @@ export default function ProcurementPage() {
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search name, code, team, category..."
-                className="h-10 rounded-lg border border-gray-200 px-3 text-sm"
+                className="h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
               />
               <select
                 value={teamFilter}
@@ -466,7 +526,7 @@ export default function ProcurementPage() {
                   setTeamFilter(event.target.value);
                   setCategoryFilter("");
                 }}
-                className="h-10 rounded-lg border bg-white px-3 text-sm"
+                className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
               >
                 <option value="">All teams</option>
                 <option value="flight">Flight</option>
@@ -476,7 +536,7 @@ export default function ProcurementPage() {
               <select
                 value={categoryFilter}
                 onChange={(event) => setCategoryFilter(event.target.value)}
-                className="h-10 rounded-lg border bg-white px-3 text-sm"
+                className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
               >
                 <option value="">All categories</option>
                 {categories.map((category) => (
@@ -537,14 +597,14 @@ export default function ProcurementPage() {
                               [item.id]: event.target.value,
                             })
                           }
-                          className="h-9 w-24 rounded border px-2"
+                          className="h-9 w-24 rounded border border-gray-300 bg-white px-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
                         />
                         <button
                           type="button"
                           onClick={() => void updatePrice(item)}
                           className="text-xs font-semibold text-emerald-700"
                         >
-                          Save
+                          Save catalog price
                         </button>
                       </div>
                       <span className="text-xs text-gray-500">
@@ -557,7 +617,7 @@ export default function ProcurementPage() {
                         onClick={() => addToOrder(item)}
                         className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white"
                       >
-                        Add to order
+                        Add to cart
                       </button>
                     </td>
                   </tr>
@@ -578,8 +638,7 @@ export default function ProcurementPage() {
           </div>
 
           <p className="border-t px-5 py-3 text-xs text-gray-500">
-            Price updates are saved to app_items. Purchase prices are saved as
-            snapshots on each request line.
+            Catalog prices are saved to app_items as defaults. Each cart price is saved as a purchase snapshot for Finance.
           </p>
         </section>
 
@@ -587,7 +646,7 @@ export default function ProcurementPage() {
           <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
             <div className="flex items-center justify-between border-b p-5">
               <div>
-                <h2 className="font-semibold">Purchase request</h2>
+                <h2 className="font-semibold">Purchase cart</h2>
                 <p className="mt-1 text-xs text-gray-500">
                   Deliver to {data?.selectedNest.code}
                 </p>
@@ -605,11 +664,11 @@ export default function ProcurementPage() {
 
             {orderLines.length === 0 ? (
               <p className="px-5 py-10 text-center text-sm text-gray-500">
-                Add priced items from the catalog to begin.
+                Add items from the catalog. Enter a purchase price and quantity before submitting.
               </p>
             ) : (
               <div className="space-y-3 p-4">
-                {orderLines.map(({ item, quantity }) => (
+                {orderLines.map(({ item, quantity, unitCost }) => (
                   <div key={item.id} className="rounded-lg border p-3">
                     <div className="flex justify-between gap-2">
                       <p className="text-sm font-semibold">{item.name}</p>
@@ -626,13 +685,33 @@ export default function ProcurementPage() {
                       </button>
                     </div>
                     <p className="mt-1 text-xs text-gray-500">
-                      {teamLabels[item.team]} ·{" "}
-                      {formatMoney(item.unitCost, currency)} / {item.uom}
+                      {teamLabels[item.team]} · {item.uom}
                     </p>
-                    <input
+                    <label className="mt-3 grid gap-1 text-xs font-medium text-gray-700">
+                      Purchase price ({currency})
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={unitCost}
+                        onChange={(event) =>
+                          setOrderLines((current) =>
+                            current.map((line) =>
+                              line.itemId === item.id
+                                ? { ...line, unitCost: event.target.value }
+                                : line,
+                            ),
+                          )
+                        }
+                        className="h-9 w-full rounded border border-gray-300 bg-white px-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                      />
+                    </label>
+                    <label className="mt-2 grid gap-1 text-xs font-medium text-gray-700">
+                      Quantity ({item.uom})
+                      <input
                       type="number"
-                      min="0.01"
-                      step="any"
+                      min="1"
+                      step="1"
                       value={quantity}
                       onChange={(event) =>
                         setOrderLines((current) =>
@@ -646,8 +725,12 @@ export default function ProcurementPage() {
                           ),
                         )
                       }
-                      className="mt-3 h-9 w-28 rounded border px-2"
-                    />
+                        className="h-9 w-full rounded border border-gray-300 bg-white px-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                      />
+                    </label>
+                    <p className="mt-2 text-right text-xs text-gray-500">
+                      Line total: {formatMoney((Number(unitCost) || 0) * quantity, currency)}
+                    </p>
                   </div>
                 ))}
 
@@ -658,7 +741,8 @@ export default function ProcurementPage() {
                 <button
                   type="button"
                   onClick={() => void submitOrder()}
-                  className="w-full rounded-lg bg-emerald-700 px-4 py-3 text-sm font-semibold text-white"
+                  disabled={loading || orderLines.length === 0}
+                  className="w-full rounded-lg bg-emerald-700 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300"
                 >
                   Submit purchase for receipt
                 </button>

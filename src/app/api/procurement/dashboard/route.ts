@@ -14,6 +14,7 @@ type NestRow = {
 type OrderInputLine = {
   itemId: string;
   quantity: number;
+  unitCost: number;
 };
 
 type PurchaseItemRow = {
@@ -377,10 +378,15 @@ export async function POST(request: Request) {
       const unit = String(body.unit ?? "").trim();
       const team = String(body.team ?? "").trim().toLowerCase();
       const currencyCode = getCurrency(nest.country);
+      const quantity = Number(body.quantity);
 
       if (
         !name ||
+        name.length > 200 ||
         !unit ||
+        unit.length > 40 ||
+        !Number.isInteger(quantity) ||
+        quantity <= 0 ||
         !["flight", "fulfilment", "facilities"].includes(team)
       ) {
         return NextResponse.json(
@@ -406,8 +412,9 @@ export async function POST(request: Request) {
           : Number(body.unitCost);
 
       if (
-        rawCost !== null &&
-        (!Number.isFinite(rawCost) || rawCost < 0)
+        rawCost === null ||
+        !Number.isFinite(rawCost) ||
+        rawCost < 0
       ) {
         return NextResponse.json(
           { error: "Unit price must be zero or greater." },
@@ -430,14 +437,14 @@ export async function POST(request: Request) {
           is_active: true,
           created_by: user.userId,
         })
-        .select("item_id")
+        .select("item_id, item_code")
         .single();
 
       if (error) {
         throw new Error(error.message);
       }
 
-      return NextResponse.json({ itemId: data.item_id });
+      return NextResponse.json({ itemId: data.item_id, itemCode: data.item_code });
     }
 
     if (body.action === "update_price") {
@@ -516,15 +523,13 @@ export async function POST(request: Request) {
       }
 
       const requestLines = body.lines as OrderInputLine[];
-      const itemIds = [
-        ...new Set(
-          requestLines
-            .map((line) => String(line.itemId ?? ""))
-            .filter(Boolean),
-        ),
-      ];
+      const itemIds = requestLines.map((line) => String(line?.itemId ?? ""));
 
-      if (itemIds.length === 0) {
+      if (
+        itemIds.length === 0 ||
+        itemIds.some((id) => !id) ||
+        new Set(itemIds).size !== itemIds.length
+      ) {
         return NextResponse.json(
           { error: "Add at least one valid item to the order." },
           { status: 400 },
@@ -560,14 +565,15 @@ export async function POST(request: Request) {
         if (
           !item ||
           !item.is_active ||
-          item.unit_cost === null ||
-          !Number.isFinite(quantity) ||
-          quantity <= 0
+          !Number.isInteger(quantity) ||
+          quantity <= 0 ||
+          !Number.isFinite(Number(line.unitCost)) ||
+          Number(line.unitCost) < 0
         ) {
           return NextResponse.json(
             {
               error:
-                "Every order item must be active, priced, and have a positive quantity.",
+                "Every order item must be active and have a valid purchase price and whole-number quantity.",
             },
             { status: 400 },
           );
@@ -587,7 +593,7 @@ export async function POST(request: Request) {
           item_id: item.item_id,
           requested_quantity: quantity,
           unit: item.unit,
-          unit_cost_snapshot: Number(item.unit_cost),
+          unit_cost_snapshot: Number(line.unitCost),
         });
       }
 

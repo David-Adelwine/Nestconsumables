@@ -58,6 +58,8 @@ type DashboardData = {
 type ApiResult = {
   error?: string;
   remainingQuantity?: number;
+  acknowledgedCount?: number;
+  success?: boolean;
 };
 
 const teams: Team[] = ["flight", "fulfilment", "facilities"];
@@ -93,6 +95,50 @@ function formatUpdatedAt(value: string | null) {
   }).format(date);
 }
 
+function getReceiptQuantityMessage(
+  line: PendingReceipt,
+  rawQuantity: string,
+  nestCode: string,
+): { kind: "error" | "info"; text: string } | null {
+  if (rawQuantity.trim() === "") return null;
+
+  const quantity = Number(rawQuantity);
+
+  if (!Number.isSafeInteger(quantity)) {
+    return {
+      kind: "error",
+      text: "Enter a whole-number quantity. Fractional receipts are not allowed.",
+    };
+  }
+
+  if (quantity <= 0) {
+    return {
+      kind: "error",
+      text: `Enter at least 1 ${line.unit} for ${line.itemName}.`,
+    };
+  }
+
+  if (quantity > line.pendingQuantity) {
+    const excess = quantity - line.pendingQuantity;
+
+    return {
+      kind: "error",
+      text: `You're receiving ${excess} ${line.unit} more than the ${line.pendingQuantity} ${line.unit} still expected for ${line.itemName} at ${nestCode}. You can receive up to ${line.pendingQuantity} ${line.unit}.`,
+    };
+  }
+
+  if (quantity < line.pendingQuantity) {
+    const remaining = line.pendingQuantity - quantity;
+
+    return {
+      kind: "info",
+      text: `You're receiving ${quantity} of the ${line.pendingQuantity} ${line.unit} still expected. The remaining ${remaining} ${line.unit} will stay on this manifest for later receipt.`,
+    };
+  }
+
+  return null;
+}
+
 export default function QuartermasterDashboardPage() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [selectedNestId, setSelectedNestId] = useState("");
@@ -122,8 +168,18 @@ export default function QuartermasterDashboardPage() {
   const [addItemError, setAddItemError] = useState("");
   const [savingItem, setSavingItem] = useState(false);
   const [existingItemId, setExistingItemId] = useState("");
-  const [receivingLineId, setReceivingLineId] = useState("");
-  const [receiptQuantities, setReceiptQuantities] = useState<Record<string, string>>({});
+
+  const [receiptQuantities, setReceiptQuantities] = useState<
+    Record<string, string>
+  >({});
+  const [verifiedReceiptRequests, setVerifiedReceiptRequests] = useState<
+    Record<string, boolean>
+  >({});
+  const [receiptErrors, setReceiptErrors] = useState<Record<string, string>>(
+    {},
+  );
+  const [receivingRequestId, setReceivingRequestId] = useState("");
+
   const [newItem, setNewItem] = useState({
     name: "",
     code: "",
@@ -200,8 +256,36 @@ export default function QuartermasterDashboardPage() {
   const assignedLocation = dashboard?.assignedNest;
   const availableNests = dashboard?.availableNests ?? [];
   const allowedTeams = dashboard?.allowedTeams ?? teams;
+  const nestCode = assignedLocation?.code ?? "this nest";
 
-  // Keep the positive-stock list for the consume dialog only.
+  const receiptRequests = useMemo(() => {
+    const groups = new Map<string, PendingReceipt[]>();
+
+    for (const receipt of dashboard?.pendingReceipts ?? []) {
+      const current = groups.get(receipt.requestId) ?? [];
+      current.push(receipt);
+      groups.set(receipt.requestId, current);
+    }
+
+    return [...groups.entries()]
+      .map(([requestId, lines]) => ({
+        requestId,
+        reference: lines[0]?.reference ?? "Purchase",
+        status: lines[0]?.status ?? "ordered",
+        createdAt: lines[0]?.createdAt ?? "",
+        lines: [...lines].sort((a, b) =>
+          a.itemName.localeCompare(b.itemName),
+        ),
+      }))
+      .filter((purchase) =>
+        purchase.lines.some((line) => line.pendingQuantity > 0),
+      );
+  }, [dashboard?.pendingReceipts]);
+
+  const pendingReceiptLineCount = (
+    dashboard?.pendingReceipts ?? []
+  ).filter((receipt) => receipt.pendingQuantity > 0).length;
+
   const availableItems = useMemo(
     () =>
       catalogItems.filter(
@@ -213,7 +297,6 @@ export default function QuartermasterDashboardPage() {
     [catalogItems],
   );
 
-  // Categories come from the country catalog, not just items with stock.
   const categoryOptions = useMemo(
     () =>
       [
@@ -229,7 +312,6 @@ export default function QuartermasterDashboardPage() {
     [dashboard?.categories, catalogItems],
   );
 
-  // The inventory table uses the full catalog, including zero and untracked items.
   const filteredItems = useMemo(() => {
     const query = search.trim().toLowerCase();
 
@@ -297,9 +379,7 @@ export default function QuartermasterDashboardPage() {
   ).length;
 
   const outOfStockCount = catalogItems.filter(
-    (item) =>
-      item.stockQuantity !== null &&
-      Number(item.stockQuantity) <= 0,
+    (item) => item.stockQuantity !== null && Number(item.stockQuantity) <= 0,
   ).length;
 
   const teamDescription =
@@ -366,51 +446,117 @@ export default function QuartermasterDashboardPage() {
     return result;
   }
 
-  async function acknowledgeReceipt(receipt: PendingReceipt) {
-    const quantity = Number(
-      receiptQuantities[receipt.lineId] ?? receipt.pendingQuantity,
+  async function acknowledgePurchase(purchase: {
+    requestId: string;
+    reference: string;
+    lines: PendingReceipt[];
+  }) {
+    const pendingLines = purchase.lines.filter(
+      (line) => line.pendingQuantity > 0,
     );
 
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      setError("Enter a received quantity greater than zero.");
+    const quantities = pendingLines.map((line) => ({
+      line,
+      quantity: Number(
+        receiptQuantities[line.lineId] ?? line.pendingQuantity,
+      ),
+    }));
+
+    const fractionalBalance = pendingLines.find(
+      (line) => !Number.isSafeInteger(line.pendingQuantity),
+    );
+
+    if (fractionalBalance) {
+      setReceiptErrors((current) => ({
+        ...current,
+        [purchase.requestId]:
+          "This purchase has a fractional remaining balance from an earlier entry. Ask an administrator to correct it before acknowledging receipt.",
+      }));
       return;
     }
 
-    if (quantity > receipt.pendingQuantity) {
-      setError(
-        `The quantity cannot exceed the ${receipt.pendingQuantity} ${receipt.unit} still pending.`,
+    const invalidLine = quantities.find(
+      ({ line, quantity }) =>
+        !Number.isSafeInteger(quantity) ||
+        quantity <= 0 ||
+        quantity > line.pendingQuantity,
+    );
+
+    if (invalidLine) {
+      const message = getReceiptQuantityMessage(
+        invalidLine.line,
+        String(receiptQuantities[invalidLine.line.lineId] ?? invalidLine.quantity),
+        nestCode,
       );
+
+      setReceiptErrors((current) => ({
+        ...current,
+        [purchase.requestId]:
+          message?.text ??
+          `Enter a valid whole-number quantity for ${invalidLine.line.itemName}.`,
+      }));
       return;
     }
 
-    setError("");
+    setReceiptErrors((current) => {
+      const next = { ...current };
+      delete next[purchase.requestId];
+      return next;
+    });
     setNotice("");
-    setReceivingLineId(receipt.lineId);
+    setReceivingRequestId(purchase.requestId);
 
     try {
       await postDashboardAction({
-        action: "acknowledge_receipt",
-        lineId: receipt.lineId,
-        quantity,
+        action: "acknowledge_request_receipt",
+        requestId: purchase.requestId,
+        lines: quantities.map(({ line, quantity }) => ({
+          lineId: line.lineId,
+          quantity,
+        })),
+      });
+
+      const receivedItems = quantities.map(
+        ({ line, quantity }) =>
+          `${quantity} ${line.unit} ${line.itemName}`,
+      );
+
+      const remainingItems = quantities.flatMap(({ line, quantity }) => {
+        const remaining = line.pendingQuantity - quantity;
+        return remaining > 0
+          ? [`${remaining} ${line.unit} ${line.itemName}`]
+          : [];
       });
 
       setNotice(
-        `${quantity} ${receipt.unit} of ${receipt.itemName} from ${receipt.reference} was added to stock.`,
+        remainingItems.length > 0
+          ? `Receipt for ${purchase.reference} recorded: ${receivedItems.join(", ")}. The remaining quantities (${remainingItems.join(", ")}) are still on the manifest for later receipt.`
+          : `Receipt for ${purchase.reference} recorded: ${receivedItems.join(", ")}. Inventory has been updated.`,
       );
+
       setReceiptQuantities((current) => {
         const next = { ...current };
-        delete next[receipt.lineId];
+        for (const { line } of quantities) delete next[line.lineId];
         return next;
       });
+
+      setVerifiedReceiptRequests((current) => {
+        const next = { ...current };
+        delete next[purchase.requestId];
+        return next;
+      });
+
       setRefreshKey((value) => value + 1);
     } catch (receiveError) {
-      setError(
-        receiveError instanceof Error
-          ? receiveError.message
-          : "Unable to acknowledge this receipt.",
-      );
+      setReceiptErrors((current) => ({
+        ...current,
+        [purchase.requestId]:
+          receiveError instanceof Error
+            ? receiveError.message
+            : "Unable to acknowledge this purchase receipt.",
+      }));
     } finally {
-      setReceivingLineId("");
+      setReceivingRequestId("");
     }
   }
 
@@ -665,68 +811,250 @@ export default function QuartermasterDashboardPage() {
           />
         </section>
 
-        {(dashboard?.pendingReceipts ?? []).length > 0 && (
-          <section className="mt-7 overflow-hidden rounded-xl border border-amber-200 bg-white shadow-sm">
-            <div className="border-b border-amber-100 bg-amber-50/70 p-5">
+        {receiptRequests.length > 0 && (
+          <section className="mt-7 space-y-4">
+            <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-5">
               <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
                 <div>
-                  <h2 className="text-lg font-semibold text-slate-900">Purchases awaiting receipt</h2>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                    Delivery review
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-slate-900">
+                    Purchases awaiting receipt
+                  </h2>
                   <p className="mt-1 text-sm text-slate-600">
-                    Confirm the quantity received. Stock is updated when you acknowledge each line.
+                    Review each request manifest and compare the listed items
+                    and quantities with the delivery before confirming receipt.
                   </p>
                 </div>
                 <span className="w-fit rounded-full bg-white px-3 py-1 text-xs font-semibold text-amber-800">
-                  {(dashboard?.pendingReceipts ?? []).length} pending line(s)
+                  {receiptRequests.length} request(s) ·{" "}
+                  {pendingReceiptLineCount} item line(s) pending
                 </span>
               </div>
             </div>
-            <div className="divide-y divide-slate-100">
-              {(dashboard?.pendingReceipts ?? []).map((receipt) => (
-                <div key={receipt.lineId} className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-semibold text-slate-900">{receipt.itemName}</h3>
-                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">
-                        {normalizeTeam(receipt.team) ? displayTeam(normalizeTeam(receipt.team)!) : receipt.team}
-                      </span>
+
+            {receiptRequests.map((purchase) => {
+              const isVerified = Boolean(
+                verifiedReceiptRequests[purchase.requestId],
+              );
+              const pendingLines = purchase.lines.filter(
+                (line) => line.pendingQuantity > 0,
+              );
+              const hasFractionalPending = pendingLines.some(
+                (line) => !Number.isSafeInteger(line.pendingQuantity),
+              );
+
+              return (
+                <article
+                  key={purchase.requestId}
+                  className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+                >
+                  <header className="flex flex-col justify-between gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-base font-semibold text-slate-900">
+                          Delivery {purchase.reference}
+                        </h3>
+                        <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium capitalize text-amber-800">
+                          {purchase.status.replaceAll("_", " ")}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {purchase.createdAt
+                          ? `Sent ${formatUpdatedAt(purchase.createdAt)}`
+                          : "Purchase delivery"}
+                      </p>
                     </div>
-                    <p className="mt-1 text-sm text-slate-600">
-                      {receipt.reference}{receipt.itemCode ? ` · ${receipt.itemCode}` : ""}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Ordered {receipt.orderedQuantity} {receipt.unit} · received {receipt.receivedQuantity} {receipt.unit} · {receipt.pendingQuantity} {receipt.unit} pending
-                    </p>
+                    <span className="w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                      {purchase.lines.length} manifest item(s) ·{" "}
+                      {pendingLines.length} awaiting receipt
+                    </span>
+                  </header>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[900px] text-left text-sm">
+                      <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                        <tr>
+                          <th className="px-5 py-3">Item sent</th>
+                          <th className="px-4 py-3">Ordered</th>
+                          <th className="px-4 py-3">Received</th>
+                          <th className="px-4 py-3">Still expected</th>
+                          <th className="px-5 py-3">Quantity received now</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {purchase.lines.map((line) => {
+                          const team = normalizeTeam(line.team);
+                          const complete = line.pendingQuantity <= 0;
+                          const fractional =
+                            line.pendingQuantity > 0 &&
+                            !Number.isSafeInteger(line.pendingQuantity);
+                          const rawQuantity =
+                            receiptQuantities[line.lineId] ??
+                            String(line.pendingQuantity);
+                          const feedback = fractional
+                            ? null
+                            : getReceiptQuantityMessage(
+                                line,
+                                rawQuantity,
+                                nestCode,
+                              );
+
+                          return (
+                            <tr key={line.lineId}>
+                              <td className="px-5 py-4">
+                                <p className="font-semibold text-slate-900">
+                                  {line.itemName}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {line.itemCode ? `${line.itemCode} · ` : ""}
+                                  {team ? displayTeam(team) : line.team}
+                                </p>
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-4 font-medium text-slate-700">
+                                {line.orderedQuantity} {line.unit}
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-4 text-slate-600">
+                                {line.receivedQuantity} {line.unit}
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-4">
+                                <span
+                                  className={
+                                    complete
+                                      ? "text-emerald-700"
+                                      : "font-semibold text-amber-800"
+                                  }
+                                >
+                                  {line.pendingQuantity} {line.unit}
+                                </span>
+                              </td>
+                              <td className="px-5 py-4">
+                                {complete ? (
+                                  <span className="text-sm font-medium text-emerald-700">
+                                    Fully received
+                                  </span>
+                                ) : fractional ? (
+                                  <span className="text-xs font-medium text-red-700">
+                                    Fractional balance needs correction
+                                  </span>
+                                ) : (
+                                  <div>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      max={line.pendingQuantity}
+                                      step="1"
+                                      inputMode="numeric"
+                                      aria-label={`Quantity received now for ${line.itemName}`}
+                                      aria-invalid={feedback?.kind === "error"}
+                                      value={rawQuantity}
+                                      onChange={(event) => {
+                                        setReceiptQuantities((current) => ({
+                                          ...current,
+                                          [line.lineId]: event.target.value,
+                                        }));
+                                        setReceiptErrors((current) => {
+                                          const next = { ...current };
+                                          delete next[purchase.requestId];
+                                          return next;
+                                        });
+                                      }}
+                                      className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100 sm:w-40"
+                                    />
+                                    {feedback && (
+                                      <p
+                                        className={`mt-1 max-w-xs text-xs ${
+                                          feedback.kind === "error"
+                                            ? "text-red-700"
+                                            : "text-slate-600"
+                                        }`}
+                                      >
+                                        {feedback.text}
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                    <label className="block">
-                      <span className="mb-1 block text-xs font-semibold text-slate-600">Quantity received</span>
+
+                  {pendingLines.length > 0 && (
+                    <label className="flex cursor-pointer items-start gap-3 border-t border-slate-100 bg-slate-50 px-5 py-4 text-sm text-slate-700">
                       <input
-                        type="number"
-                        min="0.01"
-                        max={receipt.pendingQuantity}
-                        step="any"
-                        value={receiptQuantities[receipt.lineId] ?? String(receipt.pendingQuantity)}
-                        onChange={(event) =>
-                          setReceiptQuantities((current) => ({
+                        type="checkbox"
+                        checked={isVerified}
+                        onChange={(event) => {
+                          setVerifiedReceiptRequests((current) => ({
                             ...current,
-                            [receipt.lineId]: event.target.value,
-                          }))
-                        }
-                        className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm sm:w-36"
+                            [purchase.requestId]: event.target.checked,
+                          }));
+                          setReceiptErrors((current) => {
+                            const next = { ...current };
+                            delete next[purchase.requestId];
+                            return next;
+                          });
+                        }}
+                        className="mt-0.5 h-4 w-4 accent-emerald-700"
                       />
+                      <span>
+                        <span className="block font-semibold text-slate-900">
+                          I checked the delivery against this manifest.
+                        </span>
+                        <span className="mt-0.5 block text-xs text-slate-500">
+                          Review all listed quantities, then acknowledge this
+                          receipt once.
+                        </span>
+                      </span>
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => void acknowledgeReceipt(receipt)}
-                      disabled={Boolean(receivingLineId)}
-                      className="h-10 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {receivingLineId === receipt.lineId ? "Saving…" : "Acknowledge receipt"}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+                  )}
+
+                  {pendingLines.length > 0 && (
+                    <div className="flex flex-col justify-between gap-3 border-t border-slate-100 p-5 sm:flex-row sm:items-center">
+                      <div>
+                        <p className="text-sm text-slate-600">
+                          {pendingLines.length} item line(s) will be recorded
+                          together for {purchase.reference}.
+                        </p>
+                        {hasFractionalPending && (
+                          <p className="mt-1 text-xs font-medium text-red-700">
+                            This request has a fractional remaining balance
+                            from an earlier entry. Ask an administrator to
+                            correct it before acknowledging receipt.
+                          </p>
+                        )}
+                        {receiptErrors[purchase.requestId] && (
+                          <p
+                            role="alert"
+                            className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+                          >
+                            {receiptErrors[purchase.requestId]}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void acknowledgePurchase(purchase)}
+                        disabled={
+                          !isVerified ||
+                          hasFractionalPending ||
+                          Boolean(receivingRequestId)
+                        }
+                        className="h-11 shrink-0 rounded-lg bg-emerald-700 px-5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                      >
+                        {receivingRequestId === purchase.requestId
+                          ? "Recording receipt…"
+                          : "Acknowledge all received items"}
+                      </button>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
           </section>
         )}
 
@@ -761,7 +1089,9 @@ export default function QuartermasterDashboardPage() {
 
             <div className="mt-5 grid gap-3 md:grid-cols-[minmax(220px,1fr)_190px_220px]">
               <label className="flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-3 text-slate-400">
-                <span aria-hidden="true" className="text-lg">⌕</span>
+                <span aria-hidden="true" className="text-lg">
+                  ⌕
+                </span>
                 <input
                   type="search"
                   value={search}
@@ -911,7 +1241,8 @@ export default function QuartermasterDashboardPage() {
 
           <div className="flex flex-col gap-1 border-t border-slate-100 px-5 py-3 text-xs text-slate-500 sm:flex-row sm:justify-between">
             <span>
-              Showing {filteredItems.length} of {catalogItems.length} catalog items.
+              Showing {filteredItems.length} of {catalogItems.length} catalog
+              items.
             </span>
             <span>
               Consumption is available only for items with a positive balance.
@@ -942,7 +1273,7 @@ export default function QuartermasterDashboardPage() {
                 }}
                 placeholder="Type item name or code"
                 autoComplete="off"
-                className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm"
+                className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-900 placeholder:text-slate-400"
               />
             </label>
 
@@ -1031,7 +1362,7 @@ export default function QuartermasterDashboardPage() {
                 value={consumeQuantity}
                 onChange={(event) => setConsumeQuantity(event.target.value)}
                 disabled={!selectedConsumeItem || consuming}
-                className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm disabled:bg-slate-50"
+                className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-900 disabled:bg-slate-50"
               />
             </label>
 
@@ -1044,7 +1375,7 @@ export default function QuartermasterDashboardPage() {
                 maxLength={500}
                 value={consumeNote}
                 onChange={(event) => setConsumeNote(event.target.value)}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900"
               />
             </label>
 
@@ -1075,7 +1406,7 @@ export default function QuartermasterDashboardPage() {
                 autoFocus
                 value={categoryDraft}
                 onChange={(event) => setCategoryDraft(event.target.value)}
-                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm"
+                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900"
               >
                 <option value="">Unassigned</option>
                 {categoryOptions.map((category) => (
@@ -1121,7 +1452,7 @@ export default function QuartermasterDashboardPage() {
                   setNewItem({ ...newItem, name: event.target.value });
                 }}
                 placeholder="Type to search existing items, or enter a new item"
-                className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm"
+                className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-900 placeholder:text-slate-400"
               />
             </label>
 
@@ -1190,7 +1521,7 @@ export default function QuartermasterDashboardPage() {
                     onChange={(event) =>
                       setNewItem({ ...newItem, code: event.target.value })
                     }
-                    className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm"
+                    className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-900"
                   />
                 </label>
 
@@ -1208,7 +1539,7 @@ export default function QuartermasterDashboardPage() {
                           team: event.target.value as Team,
                         })
                       }
-                      className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm"
+                      className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900"
                     >
                       {teams.map((team) => (
                         <option key={team} value={team}>
@@ -1230,7 +1561,7 @@ export default function QuartermasterDashboardPage() {
                         setNewItem({ ...newItem, unit: event.target.value })
                       }
                       placeholder="Pieces, Pack, Bottle…"
-                      className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm"
+                      className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-900 placeholder:text-slate-400"
                     />
                   </label>
                 </div>
@@ -1246,7 +1577,7 @@ export default function QuartermasterDashboardPage() {
                 onChange={(event) =>
                   setNewItem({ ...newItem, category: event.target.value })
                 }
-                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm"
+                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900"
               >
                 <option value="">Unassigned</option>
                 {categoryOptions.map((category) => (
@@ -1270,7 +1601,7 @@ export default function QuartermasterDashboardPage() {
                 onChange={(event) =>
                   setNewItem({ ...newItem, quantity: event.target.value })
                 }
-                className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm"
+                className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-900"
               />
             </label>
 
