@@ -263,6 +263,14 @@ export default async function DashboardPage({
               Review access requests
               <span aria-hidden="true" className="ml-2">→</span>
             </Link>
+
+                                <Link
+                      href="/admin/users"
+                      className="inline-flex min-h-12 w-fit items-center justify-center rounded-xl border border-violet-200 bg-white px-5 text-sm font-bold text-violet-900 shadow-sm transition hover:bg-violet-50 focus:outline-none focus:ring-4 focus:ring-violet-700/20"
+                    >
+                      Manage users
+                      <span aria-hidden="true" className="ml-2">→</span>
+                    </Link>
           </section>
         </div>
       )}
