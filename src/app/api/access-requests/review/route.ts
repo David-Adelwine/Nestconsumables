@@ -97,7 +97,7 @@ async function findAuthUserByEmail(
     }
 
     const found = data.users.find(
-      (authUser) => authUser.email?.toLowerCase() === email,
+      (authUser) => authUser.email?.trim().toLowerCase() === email,
     );
 
     if (found) return found;
@@ -310,7 +310,7 @@ async function sendEmail({
   }
 }
 
-async function sendApprovalEmail({
+async function sendNewUserApprovalEmail({
   email,
   name,
   actionLink,
@@ -324,21 +324,60 @@ async function sendApprovalEmail({
 
   await sendEmail({
     to: email,
-    subject: "Your Consumables app access has been approved",
+    subject: "Your Consumables app account is ready",
     text: [
       `Hello ${name},`,
       "",
-      "Your access request has been approved.",
-      "Use this link to set or reset your password and sign in:",
+      "Your access request has been approved and your account is ready.",
+      "Use this link to set your password and sign in:",
       actionLink,
       "",
       "If you did not request access, you can ignore this email.",
     ].join("\n"),
     html: `
       <p>Hello ${safeName},</p>
-      <p>Your access request has been approved.</p>
-      <p><a href="${safeLink}">Set or reset your password</a></p>
+      <p>Your access request has been approved and your account is ready.</p>
+      <p><a href="${safeLink}">Set your password and sign in</a></p>
       <p>If you did not request access, you can ignore this email.</p>
+    `,
+  });
+}
+
+async function sendExistingUserApprovalEmail({
+  email,
+  name,
+  role,
+}: {
+  email: string;
+  name: string;
+  role: RequestRole;
+}) {
+  const safeName = escapeHtml(name);
+  const roleLabel =
+    role === "nest_lead"
+      ? "Nest Lead"
+      : role === "quartermaster"
+        ? "Quartermaster"
+        : "Procurement";
+
+  await sendEmail({
+    to: email,
+    subject: "Your Consumables app access has been updated",
+    text: [
+      `Hello ${name},`,
+      "",
+      `Your request for ${roleLabel} access has been approved and added to your existing account.`,
+      "Sign in with your existing password. You do not need to set up a new password.",
+      "If you are already signed in, sign out and sign back in to refresh your access.",
+      "",
+      "If you did not request this access, please contact your administrator.",
+    ].join("\n"),
+    html: `
+      <p>Hello ${safeName},</p>
+      <p>Your request for <strong>${roleLabel}</strong> access has been approved and added to your existing account.</p>
+      <p>Sign in with your existing password. You do not need to set up a new password.</p>
+      <p>If you are already signed in, sign out and sign back in to refresh your access.</p>
+      <p>If you did not request this access, please contact your administrator.</p>
     `,
   });
 }
@@ -372,7 +411,7 @@ async function sendDeclineEmail({
 async function provisionApprovedRequest(
   supabase: ReturnType<typeof createAdminClient>,
   accessRequest: AccessRequest,
-) {
+): Promise<"existing" | "new"> {
   const email = accessRequest.requester_email?.trim().toLowerCase();
 
   if (!email) {
@@ -384,46 +423,60 @@ async function provisionApprovedRequest(
   }
 
   const name = accessRequest.requester_name?.trim() || "there";
-  const redirectTo = new URL("/auth/confirm", `${getAppUrl()}/`);
-  redirectTo.searchParams.set("next", "/set-password");
-
   const existingAuthUser = await findAuthUserByEmail(supabase, email);
+  let userId = existingAuthUser?.id;
+  let actionLink: string | null = null;
 
-  // Keep these as separate calls. `data` is supported for invite links,
-  // but not recovery links.
-  const linkResult = existingAuthUser
-    ? await supabase.auth.admin.generateLink({
-        type: "recovery",
-        email,
-        options: {
-          redirectTo: redirectTo.toString(),
-        },
-      })
-    : await supabase.auth.admin.generateLink({
-        type: "invite",
-        email,
-        options: {
-          redirectTo: redirectTo.toString(),
-          data: {
-            full_name: name,
+  const hasCompletedAccount = Boolean(
+    existingAuthUser?.email_confirmed_at ||
+      existingAuthUser?.confirmed_at ||
+      existingAuthUser?.last_sign_in_at,
+  );
+
+  const needsPasswordSetup = !existingAuthUser || !hasCompletedAccount;
+  const accountType: "existing" | "new" = needsPasswordSetup
+    ? "new"
+    : "existing";
+
+  // Established accounts keep their current credentials. A new account gets
+  // an invite; an account left pending from a previous failed invitation gets
+  // a recovery link so the user can still finish password setup.
+  if (needsPasswordSetup) {
+    const redirectTo = new URL("/auth/confirm", `${getAppUrl()}/`);
+    redirectTo.searchParams.set("next", "/set-password");
+
+    const linkResult = existingAuthUser
+      ? await supabase.auth.admin.generateLink({
+          type: "recovery",
+          email,
+          options: { redirectTo: redirectTo.toString() },
+        })
+      : await supabase.auth.admin.generateLink({
+          type: "invite",
+          email,
+          options: {
+            redirectTo: redirectTo.toString(),
+            data: { full_name: name },
           },
-        },
-      });
+        });
 
-  if (linkResult.error) {
-    throw new Error(
-      `Could not generate the password link: ${linkResult.error.message}`,
-    );
+    if (linkResult.error) {
+      throw new Error(
+        `Could not generate the password setup link: ${linkResult.error.message}`,
+      );
+    }
+
+    userId = linkResult.data.user?.id ?? userId;
+    actionLink = linkResult.data.properties?.action_link ?? null;
+
+    if (!userId || !actionLink) {
+      throw new Error("Supabase did not return a user and password setup link.");
+    }
   }
 
-  const authUser = linkResult.data.user;
-  const actionLink = linkResult.data.properties?.action_link;
-
-  if (!authUser?.id || !actionLink) {
-    throw new Error("Supabase did not return a user and password link.");
+  if (!userId) {
+    throw new Error("Could not identify the account for this access request.");
   }
-
-  const userId = authUser.id;
 
   const { error: profileError } = await supabase
     .from("app_user_profiles")
@@ -485,15 +538,25 @@ async function provisionApprovedRequest(
 
   if (requestUpdateError) {
     throw new Error(
-      `Could not link the request to the new user: ${requestUpdateError.message}`,
+      `Could not link the request to the account: ${requestUpdateError.message}`,
     );
   }
 
-  await sendApprovalEmail({
-    email,
-    name,
-    actionLink,
-  });
+  if (needsPasswordSetup && actionLink) {
+    await sendNewUserApprovalEmail({
+      email,
+      name,
+      actionLink,
+    });
+  } else {
+    await sendExistingUserApprovalEmail({
+      email,
+      name,
+      role: accessRequest.requested_role,
+    });
+  }
+
+  return accountType;
 }
 
 /**
@@ -754,11 +817,15 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      await provisionApprovedRequest(supabase, accessRequest);
+      const accountType = await provisionApprovedRequest(
+        supabase,
+        accessRequest,
+      );
 
       return NextResponse.json({
         success: true,
         decision,
+        accountType,
         notificationSent: true,
       });
     } catch (provisionError) {
