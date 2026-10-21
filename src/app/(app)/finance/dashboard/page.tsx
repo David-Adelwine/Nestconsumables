@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 
 import { useEffect, useMemo, useState } from "react";
 import { StatCard } from "@/components/dashboard/StatCard";
@@ -248,6 +249,25 @@ export default function FinanceDashboardPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
+
+<nav
+  aria-label="Finance dashboard views"
+  className="flex flex-wrap gap-2"
+>
+  <Link
+    href="/finance/dashboard"
+    aria-current="page"
+    className="rounded-xl bg-violet-100 px-4 py-2.5 text-sm font-bold text-violet-900"
+  >
+    Consumables costs
+  </Link>
+  <Link
+    href="/finance/quarterly-expenses"
+    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:border-violet-300 hover:text-violet-800"
+  >
+    Quarterly expenses
+  </Link>
+</nav>
       <section className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
         <div>
           <p className="text-xs font-semibold tracking-[0.16em] text-emerald-700">

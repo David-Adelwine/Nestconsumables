@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 
 import { useEffect, useMemo, useState } from "react";
 
@@ -339,6 +340,26 @@ export default function NestLeadDashboardPage() {
             </div>
           )}
         </header>
+
+
+        <nav
+  aria-label="Nest lead dashboard views"
+  className="mt-4 flex flex-wrap gap-2"
+>
+  <Link
+    href="/lead/dashboard"
+    aria-current="page"
+    className="rounded-xl bg-violet-100 px-4 py-2.5 text-sm font-bold text-violet-900"
+  >
+    Nest inventory
+  </Link>
+  <Link
+    href="/expenses/dashboard"
+    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:border-violet-300 hover:text-violet-800"
+  >
+    Quarterly expenses
+  </Link>
+</nav>
 
         {error && (
           <div
