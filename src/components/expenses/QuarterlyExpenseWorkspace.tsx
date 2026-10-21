@@ -517,7 +517,7 @@ export function QuarterlyExpenseWorkspace({ mode = "planning" }: Props) {
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[850px] text-left text-sm">
                   <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                    <tr><th className="px-5 py-3">Expense</th><th className="px-5 py-3">Category / GL</th><th className="px-5 py-3">Nest</th><th className="px-5 py-3">Requested</th><th className="px-5 py-3">Approved</th><th className="px-5 py-3">Status</th></tr>
+                    <tr><th className="px-5 py-3">Expense</th><th className="px-5 py-3">Category / GL</th><th className="px-5 py-3">Nest</th><th className="px-5 py-3">Requested</th><th className="px-5 py-3">Approved</th><th className="px-5 py-3">Status</th><th className="px-5 py-3">Actions</th></tr>
                   </thead>
                   <tbody>
                     {data.requests.map((request) => (
@@ -528,6 +528,23 @@ export function QuarterlyExpenseWorkspace({ mode = "planning" }: Props) {
                         <td className="px-5 py-4 font-medium text-slate-900">{money(toNumber(request.requested_amount), data.currencyCode)}</td>
                         <td className="px-5 py-4 text-slate-700">{request.approved_amount === null ? "—" : money(toNumber(request.approved_amount), data.currencyCode)}</td>
                         <td className="px-5 py-4"><span className="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-800">{statusLabel(request.status)}</span>{request.review_note && <p className="mt-1 max-w-48 text-xs text-slate-500">{request.review_note}</p>}</td>
+                        <td className="px-5 py-4">
+                          {!readOnly && request.status === "draft" && (
+                            <button type="button" disabled={saving} onClick={() => void postAction({ action: "submit_request", cycleId, expenseId: request.expense_id })} className="rounded-lg border border-violet-200 px-3 py-1.5 text-xs font-semibold text-violet-800 hover:bg-violet-50 disabled:opacity-50">
+                              Submit
+                            </button>
+                          )}
+                          {readOnly && ["submitted", "in_review"].includes(request.status) && (
+                            <div className="flex gap-2">
+                              <button type="button" disabled={saving} onClick={() => void postAction({ action: "review_request", cycleId, expenseId: request.expense_id, status: "approved", approvedAmount: request.requested_amount })} className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800 disabled:opacity-50">
+                                Approve
+                              </button>
+                              <button type="button" disabled={saving} onClick={() => void postAction({ action: "review_request", cycleId, expenseId: request.expense_id, status: "rejected" })} className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50">
+                                Reject
+                              </button>
+                            </div>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
