@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { StatCard } from "@/components/dashboard/StatCard";
 
 type Team = "flight" | "fulfilment" | "facilities";
@@ -259,6 +260,14 @@ export default function FinanceDashboardPage() {
           <p className="mt-2 max-w-2xl text-sm text-gray-500">
             Review requested, purchased, and received costs by nest and team.
           </p>
+          <nav aria-label="Finance dashboard views" className="mt-4 flex flex-wrap gap-2">
+            <Link href="/finance/dashboard" className="rounded-lg bg-emerald-100 px-3 py-2 text-sm font-semibold text-emerald-900">
+              Consumables costs
+            </Link>
+            <Link href="/finance/dashboard/quarterly-expenses" className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:border-emerald-300 hover:text-emerald-800">
+              Quarterly expenses
+            </Link>
+          </nav>
         </div>
 
         <label className="grid gap-1.5 text-xs font-medium text-gray-600">
