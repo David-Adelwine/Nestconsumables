@@ -11,33 +11,35 @@ type NestRow = {
   country: string | null;
 };
 
-const expenseRoles = [
-  "it_admin",
-  "business_ops_manager",
-  "procurement",
-  "finance",
-] as const;
-
 function canUseExpenses(user: AppUser): boolean {
-  return expenseRoles.some((role) => hasRole(user, role));
-}
-
-function canCreateCycle(user: AppUser): boolean {
   return (
     hasRole(user, "it_admin") ||
     hasRole(user, "business_ops_manager") ||
-    hasRole(user, "procurement")
+    hasRole(user, "procurement") ||
+    hasRole(user, "finance") ||
+    hasRole(user, "quartermaster") ||
+    hasRole(user, "nest_lead")
   );
 }
 
-function canManageCycle(user: AppUser, ownerUserId: string | null): boolean {
-  return hasRole(user, "it_admin") || ownerUserId === user.userId;
+function canManageCountry(user: AppUser, country: string): boolean {
+  if (hasRole(user, "it_admin")) return true;
+
+  return (
+    (hasRole(user, "business_ops_manager") ||
+      hasRole(user, "procurement") ||
+      hasRole(user, "finance")) &&
+    user.countryAccess.some(
+      (value) => value.toLowerCase() === country.toLowerCase(),
+    )
+  );
 }
 
-function canReviewCycle(user: AppUser, ownerUserId: string | null): boolean {
+function canRecordExpenses(user: AppUser): boolean {
   return (
     hasRole(user, "it_admin") ||
-    (hasRole(user, "finance") && ownerUserId !== user.userId)
+    hasRole(user, "quartermaster") ||
+    hasRole(user, "nest_lead")
   );
 }
 
@@ -47,45 +49,35 @@ function currencyFor(country: string): string | null {
   if (value === "GH" || value.includes("GHANA")) return "GHS";
   if (value === "RW" || value.includes("RWANDA")) return "RWF";
   if (value === "NG" || value.includes("NIGERIA")) return "NGN";
-
-  if (
-    value === "CI" ||
-    value.includes("COTE") ||
-    value.includes("CÔTE") ||
-    value.includes("IVORY")
-  ) {
+  if (value === "CI" || value.includes("COTE") || value.includes("IVORY")) {
     return "XOF";
   }
-
   if (value === "KE" || value.includes("KENYA")) return "KES";
+  if (value === "US" || value.includes("UNITED STATES")) return "USD";
+  if (value === "JP" || value.includes("JAPAN")) return "JPY";
+  if (value === "UA" || value.includes("UKRAINE")) return "UAH";
 
   return null;
 }
 
-function formatNestCode(nest: NestRow): string {
+function nestCode(nest: NestRow): string {
   const match = nest.nest_key?.trim().match(/^([a-z]+)[- _]?(\d+)$/i);
-
-  return match
-    ? `${match[1]}-${match[2]}`.toUpperCase()
-    : `NEST-${nest.nest_id}`;
+  return match ? `${match[1]}-${match[2]}`.toUpperCase() : `NEST-${nest.nest_id}`;
 }
 
-function numberFrom(
-  value: unknown,
-  label: string,
-  allowEmpty = false,
-): number | null {
-  if ((value === null || value === undefined || value === "") && allowEmpty) {
-    return null;
-  }
+function unauthorized() {
+  return NextResponse.json(
+    { error: "Please sign in with an active application account." },
+    { status: 401 },
+  );
+}
 
-  const parsed = Number(value);
-
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new Error(`${label} must be zero or greater.`);
-  }
-
-  return parsed;
+function failure(error: unknown, fallback: string) {
+  console.error(fallback, error);
+  return NextResponse.json(
+    { error: error instanceof Error ? error.message : fallback },
+    { status: 500 },
+  );
 }
 
 async function getAccessibleNests(
@@ -94,12 +86,12 @@ async function getAccessibleNests(
 ): Promise<NestRow[]> {
   const found = new Map<number, NestRow>();
 
-  const add = (data: unknown[] | null) => {
-    for (const raw of data ?? []) {
-      const row = raw as NestRow;
-      found.set(Number(row.nest_id), {
-        ...row,
-        nest_id: Number(row.nest_id),
+  const add = (rows: unknown[] | null) => {
+    for (const raw of rows ?? []) {
+      const nest = raw as NestRow;
+      found.set(Number(nest.nest_id), {
+        ...nest,
+        nest_id: Number(nest.nest_id),
       });
     }
   };
@@ -127,16 +119,16 @@ async function getAccessibleNests(
     add(data as unknown[] | null);
   }
 
-  const directIds = [
+  const nestIds = [
     ...new Set(
       user.nestAccess
-        .map((item) => Number(item.nestId))
+        .map((access) => Number(access.nestId))
         .filter((id) => Number.isSafeInteger(id) && id > 0),
     ),
   ];
 
-  if (directIds.length) {
-    const { data, error } = await query().in("nest_id", directIds);
+  if (nestIds.length) {
+    const { data, error } = await query().in("nest_id", nestIds);
     if (error) throw new Error(error.message);
     add(data as unknown[] | null);
   }
@@ -173,54 +165,34 @@ async function getAccessibleNests(
   return [...found.values()];
 }
 
-function unauthorized() {
-  return NextResponse.json(
-    { error: "Please sign in with an active application account." },
-    { status: 401 },
-  );
-}
-
-function failure(error: unknown, fallback: string) {
-  console.error(fallback, error);
-
-  return NextResponse.json(
-    { error: error instanceof Error ? error.message : fallback },
-    { status: 500 },
-  );
-}
-
 export async function GET(request: Request) {
   try {
     const user = await getUserContext();
-
     if (!user?.isActive || !user.hasApplicationAccess) return unauthorized();
 
     if (!canUseExpenses(user)) {
       return NextResponse.json(
-        { error: "You do not have access to quarterly expense planning." },
+        { error: "You do not have access to quarterly expenses." },
         { status: 403 },
       );
     }
 
     const supabase = await createClient();
-    const nests = await getAccessibleNests(supabase, user);
+    const allNests = await getAccessibleNests(supabase, user);
     const countries = [
       ...new Set(
-        nests
+        allNests
           .map((nest) => nest.country)
           .filter((country): country is string => Boolean(country)),
       ),
     ].sort();
 
-    const search = new URL(request.url).searchParams;
-    const requestedCountry = search.get("country");
-    const country = requestedCountry ?? countries[0];
+    const params = new URL(request.url).searchParams;
+    const country = params.get("country") ?? countries[0];
 
     if (
       !country ||
-      !countries.some(
-        (value) => value.toLowerCase() === country.toLowerCase(),
-      )
+      !countries.some((value) => value.toLowerCase() === country.toLowerCase())
     ) {
       return NextResponse.json(
         { error: "You do not have access to this country." },
@@ -228,20 +200,11 @@ export async function GET(request: Request) {
       );
     }
 
-    const countryNests = nests
+    const nests = allNests
       .filter((nest) => nest.country?.toLowerCase() === country.toLowerCase())
       .sort((a, b) => a.nest_name.localeCompare(b.nest_name));
 
-    const currencyCode = currencyFor(country);
-
-    if (!currencyCode) {
-      return NextResponse.json(
-        { error: `No currency mapping is configured for ${country}.` },
-        { status: 400 },
-      );
-    }
-
-    const { data: cycles, error: cyclesError } = await supabase
+    const { data: cycles, error: cycleError } = await supabase
       .from("app_expense_cycles")
       .select(
         "cycle_id, country, fiscal_year, quarter, currency_code, status, owner_user_id, source_cycle_id, created_at, updated_at",
@@ -250,63 +213,85 @@ export async function GET(request: Request) {
       .order("fiscal_year", { ascending: false })
       .order("quarter", { ascending: false });
 
-    if (cyclesError) throw new Error(cyclesError.message);
+    if (cycleError) throw new Error(cycleError.message);
 
-    const cycleId = search.get("cycleId") ?? cycles?.[0]?.cycle_id ?? null;
+    const requestedCycleId = params.get("cycleId");
     const selectedCycle =
-      (cycles ?? []).find((cycle) => cycle.cycle_id === cycleId) ?? null;
+      (cycles ?? []).find((cycle) => cycle.cycle_id === requestedCycleId) ??
+      (cycles ?? [])[0] ??
+      null;
 
-    let budgets: unknown[] = [];
-    let requests: unknown[] = [];
+    let allocations: unknown[] = [];
+    let entries: unknown[] = [];
 
     if (selectedCycle) {
-      const [budgetResult, requestResult] = await Promise.all([
+      const [allocationResult, entryResult] = await Promise.all([
         supabase
-          .from("app_expense_budgets")
+          .from("app_expense_nest_allocations")
           .select(
-            "budget_id, cycle_id, nest_id, department, gl_code, category, budget_amount, notes, created_at",
+            "allocation_id, cycle_id, nest_id, allocation_amount, notes, updated_at",
           )
-          .eq("cycle_id", selectedCycle.cycle_id)
-          .order("category", { ascending: true }),
+          .eq("cycle_id", selectedCycle.cycle_id),
 
         supabase
-          .from("app_expense_requests")
+          .from("app_expense_entries")
           .select(
-            "expense_id, cycle_id, nest_id, department, gl_code, category, expense_type, description, unit_measure, quantity, requested_amount, approved_amount, vendor_name, status, requester_note, review_note, created_by, created_at, updated_at",
+            "expense_id, cycle_id, nest_id, item_code_snapshot, item_name_snapshot, vendor_name_snapshot, amount, comment, created_by, created_at",
           )
           .eq("cycle_id", selectedCycle.cycle_id)
           .order("created_at", { ascending: false }),
       ]);
 
-      if (budgetResult.error) throw new Error(budgetResult.error.message);
-      if (requestResult.error) throw new Error(requestResult.error.message);
+      if (allocationResult.error) throw new Error(allocationResult.error.message);
+      if (entryResult.error) throw new Error(entryResult.error.message);
 
-      budgets = budgetResult.data ?? [];
-      requests = requestResult.data ?? [];
+      allocations = allocationResult.data ?? [];
+      entries = entryResult.data ?? [];
     }
+
+    const [itemResult, vendorResult] = await Promise.all([
+      supabase
+        .from("app_expense_catalog_items")
+        .select("item_id, item_code, item_name, category")
+        .ilike("country", country)
+        .eq("is_active", true)
+        .order("item_name"),
+
+      supabase
+        .from("app_expense_catalog_vendors")
+        .select("vendor_id, vendor_name")
+        .ilike("country", country)
+        .eq("is_active", true)
+        .order("vendor_name"),
+    ]);
+
+    if (itemResult.error) throw new Error(itemResult.error.message);
+    if (vendorResult.error) throw new Error(vendorResult.error.message);
+
+    const manageable = canManageCountry(user, country);
+    const recordNestIds = canRecordExpenses(user)
+      ? nests.map((nest) => String(nest.nest_id))
+      : [];
 
     return NextResponse.json(
       {
         countries,
         country,
-        currencyCode,
-        nests: countryNests.map((nest) => ({
+        currencyCode: selectedCycle?.currency_code ?? currencyFor(country) ?? "USD",
+        nests: nests.map((nest) => ({
           id: String(nest.nest_id),
-          code: formatNestCode(nest),
+          code: nestCode(nest),
           name: nest.nest_name,
         })),
         cycles: cycles ?? [],
         selectedCycle,
-        budgets,
-        requests,
+        allocations,
+        entries,
+        items: itemResult.data ?? [],
+        vendors: vendorResult.data ?? [],
         permissions: {
-          canCreateCycle: canCreateCycle(user),
-          canManageCycle: selectedCycle
-            ? canManageCycle(user, selectedCycle.owner_user_id)
-            : false,
-          canReview: selectedCycle
-            ? canReviewCycle(user, selectedCycle.owner_user_id)
-            : false,
+          canManageCountry: manageable,
+          canRecordNestIds: recordNestIds,
         },
       },
       { headers: { "Cache-Control": "no-store" } },
@@ -319,12 +304,11 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const user = await getUserContext();
-
     if (!user?.isActive || !user.hasApplicationAccess) return unauthorized();
 
     if (!canUseExpenses(user)) {
       return NextResponse.json(
-        { error: "You do not have access to quarterly expense planning." },
+        { error: "You do not have access to quarterly expenses." },
         { status: 403 },
       );
     }
@@ -334,49 +318,27 @@ export async function POST(request: Request) {
     const supabase = await createClient();
 
     if (action === "create_cycle") {
-      if (!canCreateCycle(user)) {
-        return NextResponse.json(
-          { error: "Only Business Ops, Procurement, or IT Admin can create a cycle." },
-          { status: 403 },
-        );
-      }
-
       const country = String(body.country ?? "").trim();
-      const fiscalYear = Number(body.fiscalYear);
+      const year = Number(body.fiscalYear);
       const quarter = Number(body.quarter);
       const currencyCode = currencyFor(country);
 
+      if (!canManageCountry(user, country)) {
+        return NextResponse.json({ error: "You cannot manage this country." }, { status: 403 });
+      }
+
       if (
-        !country ||
         !currencyCode ||
-        !Number.isInteger(fiscalYear) ||
-        fiscalYear < 2020 ||
-        fiscalYear > 2100
+        !Number.isInteger(year) ||
+        year < 2020 ||
+        year > 2100 ||
+        !Number.isInteger(quarter) ||
+        quarter < 1 ||
+        quarter > 4
       ) {
         return NextResponse.json(
-          { error: "Choose a valid country and fiscal year." },
+          { error: "Enter a valid country, fiscal year, and quarter." },
           { status: 400 },
-        );
-      }
-
-      if (!Number.isInteger(quarter) || quarter < 1 || quarter > 4) {
-        return NextResponse.json(
-          { error: "Choose a quarter from Q1 to Q4." },
-          { status: 400 },
-        );
-      }
-
-      const allowedNests = await getAccessibleNests(supabase, user);
-
-      if (
-        !hasRole(user, "it_admin") &&
-        !allowedNests.some(
-          (nest) => nest.country?.toLowerCase() === country.toLowerCase(),
-        )
-      ) {
-        return NextResponse.json(
-          { error: "You do not have access to this country." },
-          { status: 403 },
         );
       }
 
@@ -384,14 +346,11 @@ export async function POST(request: Request) {
         .from("app_expense_cycles")
         .insert({
           country,
-          fiscal_year: fiscalYear,
+          fiscal_year: year,
           quarter,
           currency_code: currencyCode,
           status: "draft",
           owner_user_id: user.userId,
-          source_cycle_id: body.sourceCycleId
-            ? String(body.sourceCycleId)
-            : null,
           created_by: user.userId,
         })
         .select(
@@ -399,348 +358,209 @@ export async function POST(request: Request) {
         )
         .single();
 
-      if (error) {
-        if (error.code === "23505") {
-          return NextResponse.json(
-            { error: "A cycle already exists for that country and quarter." },
-            { status: 409 },
-          );
-        }
-
-        throw new Error(error.message);
+      if (error?.code === "23505") {
+        return NextResponse.json(
+          { error: "A quarter already exists for that country and period." },
+          { status: 409 },
+        );
       }
+      if (error) throw new Error(error.message);
 
       return NextResponse.json({ cycle: data }, { status: 201 });
     }
 
     const cycleId = String(body.cycleId ?? "");
-
     if (!cycleId) {
-      return NextResponse.json(
-        { error: "Choose a quarterly cycle." },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "Select a quarter." }, { status: 400 });
     }
 
     const { data: cycle, error: cycleError } = await supabase
       .from("app_expense_cycles")
-      .select("cycle_id, country, status, currency_code, owner_user_id")
+      .select("cycle_id, country, status, currency_code")
       .eq("cycle_id", cycleId)
       .maybeSingle();
 
     if (cycleError) throw new Error(cycleError.message);
     if (!cycle) {
-      return NextResponse.json(
-        { error: "Quarterly cycle not found." },
-        { status: 404 },
-      );
+      return NextResponse.json({ error: "Quarter not found." }, { status: 404 });
     }
 
-    const nests = await getAccessibleNests(supabase, user);
-
-    if (
-      !hasRole(user, "it_admin") &&
-      !nests.some(
-        (nest) => nest.country?.toLowerCase() === cycle.country.toLowerCase(),
-      )
-    ) {
-      return NextResponse.json(
-        { error: "You do not have access to this country." },
-        { status: 403 },
-      );
+    if (!canManageCountry(user, cycle.country) && action !== "add_expense") {
+      return NextResponse.json({ error: "You cannot manage this country." }, { status: 403 });
     }
-
-    const isOwner = canManageCycle(user, cycle.owner_user_id);
-    const isReviewer = canReviewCycle(user, cycle.owner_user_id);
 
     if (action === "set_cycle_status") {
-      const nextStatus = String(body.status ?? "");
-      const ownerTransitions: Record<string, string[]> = {
-        draft: ["open"],
-        open: ["in_review"],
-      };
-      const reviewerTransitions: Record<string, string[]> = {
-        in_review: ["open", "approved"],
-        approved: ["closed"],
-      };
-
+      const status = String(body.status ?? "");
       const allowed =
-        (isOwner && ownerTransitions[cycle.status]?.includes(nextStatus)) ||
-        (isReviewer && reviewerTransitions[cycle.status]?.includes(nextStatus));
+        (cycle.status === "draft" && status === "open") ||
+        (cycle.status === "open" && status === "closed");
 
-      if (!allowed) {
-        return NextResponse.json(
-          { error: "You do not have permission for that cycle status change." },
-          { status: 403 },
-        );
+      if (!canManageCountry(user, cycle.country) || !allowed) {
+        return NextResponse.json({ error: "That quarter status change is not allowed." }, { status: 403 });
       }
 
       const { error } = await supabase
         .from("app_expense_cycles")
-        .update({ status: nextStatus, updated_at: new Date().toISOString() })
+        .update({ status, updated_at: new Date().toISOString() })
         .eq("cycle_id", cycleId);
 
       if (error) throw new Error(error.message);
-
-      return NextResponse.json({ cycleId, status: nextStatus });
+      return NextResponse.json({ cycleId, status });
     }
 
-    if (action === "add_budget") {
-      if (!isOwner) {
+    if (action === "save_allocation") {
+      if (cycle.status === "closed") {
         return NextResponse.json(
-          { error: "Only the cycle owner or IT Admin can edit this plan." },
-          { status: 403 },
-        );
-      }
-
-      if (cycle.status !== "draft" && cycle.status !== "open") {
-        return NextResponse.json(
-          { error: "Budgets can only be changed while the quarter is draft or open." },
+          { error: "Allocations cannot be changed after the quarter is closed." },
           { status: 409 },
         );
       }
 
-      const category = String(body.category ?? "").trim();
-      const glCode = String(body.glCode ?? "").trim();
-      const department = String(body.department ?? "").trim();
-      const amount = numberFrom(body.budgetAmount, "Budget amount");
+      const nestId = Number(body.nestId);
+      const amount = Number(body.allocationAmount);
 
-      if (!category || !glCode || amount === null) {
-        return NextResponse.json(
-          { error: "Enter a GL code, category, and budget amount." },
-          { status: 400 },
-        );
+      if (!Number.isSafeInteger(nestId) || nestId <= 0 || !Number.isFinite(amount) || amount < 0) {
+        return NextResponse.json({ error: "Enter a valid nest and allocation amount." }, { status: 400 });
       }
 
-      const nestId = body.nestId ? Number(body.nestId) : null;
+      const { data: nest, error: nestError } = await supabase
+        .from("company_nests")
+        .select("nest_id, country")
+        .eq("nest_id", nestId)
+        .eq("is_production_nest", true)
+        .maybeSingle();
 
-      if (
-        nestId !== null &&
-        !nests.some(
-          (nest) =>
-            nest.nest_id === nestId &&
-            nest.country?.toLowerCase() === cycle.country.toLowerCase(),
-        )
-      ) {
-        return NextResponse.json(
-          { error: "Choose a nest in the selected country." },
-          { status: 400 },
-        );
+      if (nestError) throw new Error(nestError.message);
+      if (!nest || nest.country?.toLowerCase() !== cycle.country.toLowerCase()) {
+        return NextResponse.json({ error: "Choose a production nest in this country." }, { status: 400 });
       }
 
       const { data, error } = await supabase
-        .from("app_expense_budgets")
-        .insert({
-          cycle_id: cycleId,
-          nest_id: nestId,
-          department,
-          gl_code: glCode,
-          category,
-          budget_amount: amount,
-          notes: String(body.notes ?? "").trim() || null,
-          created_by: user.userId,
-        })
-        .select(
-          "budget_id, cycle_id, nest_id, department, gl_code, category, budget_amount, notes, created_at",
-        )
-        .single();
-
-      if (error) throw new Error(error.message);
-
-      return NextResponse.json({ budget: data }, { status: 201 });
-    }
-
-    if (action === "add_request") {
-      if (!isOwner) {
-        return NextResponse.json(
-          { error: "Only the cycle owner or IT Admin can edit this plan." },
-          { status: 403 },
-        );
-      }
-
-      if (cycle.status !== "draft" && cycle.status !== "open") {
-        return NextResponse.json(
-          { error: "This quarter is no longer accepting expense requests." },
-          { status: 409 },
-        );
-      }
-
-      const category = String(body.category ?? "").trim();
-      const glCode = String(body.glCode ?? "").trim();
-      const description = String(body.description ?? "").trim();
-      const requestedAmount = numberFrom(
-        body.requestedAmount,
-        "Requested amount",
-      );
-      const quantity = numberFrom(body.quantity, "Quantity", true);
-
-      if (!category || !glCode || !description || requestedAmount === null) {
-        return NextResponse.json(
+        .from("app_expense_nest_allocations")
+        .upsert(
           {
-            error:
-              "Enter a GL code, category, description, and requested amount.",
+            cycle_id: cycleId,
+            nest_id: nestId,
+            allocation_amount: amount,
+            notes: String(body.notes ?? "").trim() || null,
+            created_by: user.userId,
+            updated_by: user.userId,
+            updated_at: new Date().toISOString(),
           },
-          { status: 400 },
-        );
+          { onConflict: "cycle_id,nest_id" },
+        )
+        .select("allocation_id, cycle_id, nest_id, allocation_amount, notes, updated_at")
+        .single();
+
+      if (error) throw new Error(error.message);
+      return NextResponse.json({ allocation: data });
+    }
+
+    if (action === "add_expense") {
+      if (cycle.status !== "open") {
+        return NextResponse.json({ error: "This quarter is not open for expenses." }, { status: 409 });
       }
 
-      const expenseType = String(body.expenseType ?? "recurring");
-
-      if (!["recurring", "one_off", "nte_budget"].includes(expenseType)) {
-        return NextResponse.json(
-          { error: "Choose a valid expense type." },
-          { status: 400 },
-        );
-      }
-
-      const nestId = body.nestId ? Number(body.nestId) : null;
+      const nestId = Number(body.nestId);
+      const itemId = String(body.itemId ?? "");
+      const vendorId = String(body.vendorId ?? "");
+      const amount = Number(body.amount);
+      const comment = String(body.comment ?? "").trim();
 
       if (
-        nestId !== null &&
-        !nests.some(
-          (nest) =>
-            nest.nest_id === nestId &&
-            nest.country?.toLowerCase() === cycle.country.toLowerCase(),
-        )
+        !Number.isSafeInteger(nestId) ||
+        nestId <= 0 ||
+        !itemId ||
+        !vendorId ||
+        !Number.isFinite(amount) ||
+        amount <= 0
       ) {
         return NextResponse.json(
-          { error: "Choose a nest in the selected country." },
+          { error: "Choose a nest, expense item, vendor, and valid amount." },
           { status: 400 },
         );
+      }
+
+      if (
+        !canRecordExpenses(user) ||
+        !user.nestAccess.some((access) => Number(access.nestId) === nestId)
+      ) {
+        return NextResponse.json(
+          { error: "You can only record expenses for a nest assigned to you." },
+          { status: 403 },
+        );
+      }
+
+      const { data: nests, error: nestsError } = await supabase
+        .from("company_nests")
+        .select("nest_id, country")
+        .eq("nest_id", nestId)
+        .eq("is_production_nest", true)
+        .maybeSingle();
+
+      if (nestsError) throw new Error(nestsError.message);
+      if (!nests || nests.country?.toLowerCase() !== cycle.country.toLowerCase()) {
+        return NextResponse.json({ error: "The nest must belong to this quarter country." }, { status: 400 });
+      }
+
+      const [itemResult, vendorResult, allocationResult] = await Promise.all([
+        supabase
+          .from("app_expense_catalog_items")
+          .select("item_id, item_code, item_name")
+          .eq("item_id", itemId)
+          .ilike("country", cycle.country)
+          .eq("is_active", true)
+          .maybeSingle(),
+
+        supabase
+          .from("app_expense_catalog_vendors")
+          .select("vendor_id, vendor_name")
+          .eq("vendor_id", vendorId)
+          .ilike("country", cycle.country)
+          .eq("is_active", true)
+          .maybeSingle(),
+
+        supabase
+          .from("app_expense_nest_allocations")
+          .select("allocation_id")
+          .eq("cycle_id", cycleId)
+          .eq("nest_id", nestId)
+          .maybeSingle(),
+      ]);
+
+      if (itemResult.error) throw new Error(itemResult.error.message);
+      if (vendorResult.error) throw new Error(vendorResult.error.message);
+      if (!itemResult.data || !vendorResult.data) {
+        return NextResponse.json({ error: "Choose an active item and vendor for this country." }, { status: 400 });
+      }
+      if (!allocationResult.data) {
+        return NextResponse.json({ error: "This nest has no allocation for this quarter." }, { status: 409 });
       }
 
       const { data, error } = await supabase
-        .from("app_expense_requests")
+        .from("app_expense_entries")
         .insert({
           cycle_id: cycleId,
           nest_id: nestId,
-          department: String(body.department ?? "").trim(),
-          gl_code: glCode,
-          category,
-          expense_type: expenseType,
-          description,
-          unit_measure: String(body.unitMeasure ?? "").trim() || null,
-          quantity,
-          requested_amount: requestedAmount,
-          vendor_name: String(body.vendorName ?? "").trim() || null,
-          requester_note: String(body.note ?? "").trim() || null,
-          status: "draft",
+          item_id: itemId,
+          vendor_id: vendorId,
+          item_code_snapshot: itemResult.data.item_code,
+          item_name_snapshot: itemResult.data.item_name,
+          vendor_name_snapshot: vendorResult.data.vendor_name,
+          amount,
+          comment,
           created_by: user.userId,
         })
         .select(
-          "expense_id, cycle_id, nest_id, department, gl_code, category, expense_type, description, unit_measure, quantity, requested_amount, approved_amount, vendor_name, status, requester_note, review_note, created_by, created_at, updated_at",
+          "expense_id, cycle_id, nest_id, item_code_snapshot, item_name_snapshot, vendor_name_snapshot, amount, comment, created_by, created_at",
         )
         .single();
 
       if (error) throw new Error(error.message);
-
-      return NextResponse.json({ request: data }, { status: 201 });
+      return NextResponse.json({ expense: data }, { status: 201 });
     }
 
-    if (action === "submit_request") {
-      if (!isOwner || cycle.status !== "open") {
-        return NextResponse.json(
-          { error: "Only the cycle owner can submit requests while the quarter is open." },
-          { status: 403 },
-        );
-      }
-
-      const expenseId = String(body.expenseId ?? "");
-
-      if (!expenseId) {
-        return NextResponse.json(
-          { error: "Choose an expense request to submit." },
-          { status: 400 },
-        );
-      }
-
-      const { data, error } = await supabase
-        .from("app_expense_requests")
-        .update({ status: "submitted", updated_at: new Date().toISOString() })
-        .eq("expense_id", expenseId)
-        .eq("cycle_id", cycleId)
-        .eq("status", "draft")
-        .select("expense_id, status, updated_at")
-        .maybeSingle();
-
-      if (error) throw new Error(error.message);
-
-      if (!data) {
-        return NextResponse.json(
-          { error: "Only draft requests can be submitted." },
-          { status: 409 },
-        );
-      }
-
-      return NextResponse.json({ request: data });
-    }
-
-    if (action === "review_request") {
-      if (!isReviewer) {
-        return NextResponse.json(
-          { error: "You do not have permission to review this quarter." },
-          { status: 403 },
-        );
-      }
-
-      if (cycle.status !== "in_review") {
-        return NextResponse.json(
-          { error: "The quarter must be in review before requests can be reviewed." },
-          { status: 409 },
-        );
-      }
-
-      const expenseId = String(body.expenseId ?? "");
-      const status = String(body.status ?? "");
-
-      if (
-        !expenseId ||
-        !["in_review", "approved", "rejected"].includes(status)
-      ) {
-        return NextResponse.json(
-          { error: "Choose a valid request and review status." },
-          { status: 400 },
-        );
-      }
-
-      const approvedAmount =
-        status === "approved"
-          ? numberFrom(body.approvedAmount, "Approved amount")
-          : null;
-
-      const { data, error } = await supabase
-        .from("app_expense_requests")
-        .update({
-          status,
-          approved_amount: approvedAmount,
-          review_note: String(body.reviewNote ?? "").trim() || null,
-          reviewed_by: user.userId,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("expense_id", expenseId)
-        .eq("cycle_id", cycleId)
-        .in("status", ["submitted", "in_review"])
-        .select(
-          "expense_id, status, approved_amount, review_note, reviewed_by, updated_at",
-        )
-        .maybeSingle();
-
-      if (error) throw new Error(error.message);
-
-      if (!data) {
-        return NextResponse.json(
-          { error: "This request is no longer awaiting review." },
-          { status: 409 },
-        );
-      }
-
-      return NextResponse.json({ request: data });
-    }
-
-    return NextResponse.json(
-      { error: "Unsupported expense action." },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "Unsupported expense action." }, { status: 400 });
   } catch (error) {
     return failure(error, "Unable to save quarterly expense data.");
   }

@@ -15,39 +15,41 @@ type Cycle = {
   quarter: number;
   currency_code: string;
   status: "draft" | "open" | "in_review" | "approved" | "closed";
-  owner_user_id: string | null;
-  source_cycle_id: string | null;
-};
-
-type Budget = {
-  budget_id: string;
-  nest_id: number | null;
-  department: string;
-  gl_code: string;
-  category: string;
-  budget_amount: number | string;
-  notes: string | null;
-};
-
-type ExpenseRequest = {
-  expense_id: string;
-  nest_id: number | null;
-  department: string;
-  gl_code: string;
-  category: string;
-  expense_type: "recurring" | "one_off" | "nte_budget";
-  description: string;
-  unit_measure: string | null;
-  quantity: number | string | null;
-  requested_amount: number | string;
-  approved_amount: number | string | null;
-  vendor_name: string | null;
-  status: string;
-  requester_note: string | null;
-  review_note: string | null;
 };
 
 type Nest = { id: string; code: string; name: string };
+
+type Item = {
+  item_id: string;
+  item_code: string;
+  item_name: string;
+  category: string;
+};
+
+type Vendor = {
+  vendor_id: string;
+  vendor_name: string;
+};
+
+type Allocation = {
+  allocation_id: string;
+  cycle_id: string;
+  nest_id: number;
+  allocation_amount: number | string;
+  notes: string | null;
+};
+
+type Entry = {
+  expense_id: string;
+  cycle_id: string;
+  nest_id: number;
+  item_code_snapshot: string;
+  item_name_snapshot: string;
+  vendor_name_snapshot: string;
+  amount: number | string;
+  comment: string;
+  created_at: string;
+};
 
 type DashboardData = {
   countries: string[];
@@ -56,16 +58,40 @@ type DashboardData = {
   nests: Nest[];
   cycles: Cycle[];
   selectedCycle: Cycle | null;
-  budgets: Budget[];
-  requests: ExpenseRequest[];
+  allocations: Allocation[];
+  entries: Entry[];
+  items: Item[];
+  vendors: Vendor[];
   permissions: {
-    canCreateCycle: boolean;
-    canManageCycle: boolean;
-    canReview: boolean;
+    canManageCountry: boolean;
+    canRecordNestIds: string[];
   };
 };
 
-type Props = { mode?: "planning" | "finance" };
+type ApiResult = {
+  cycle?: Cycle;
+  allocation?: Allocation;
+  expense?: Entry;
+  error?: string;
+};
+
+const inputClass =
+  "mt-1.5 h-12 w-full rounded-xl border border-slate-300 bg-white px-3.5 text-sm font-medium text-slate-950 shadow-sm outline-none transition placeholder:font-normal placeholder:text-slate-400 hover:border-slate-400 focus:border-violet-600 focus:ring-4 focus:ring-violet-600/15 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500";
+
+const selectClass =
+  "mt-1.5 h-12 w-full appearance-none rounded-xl border border-slate-300 bg-white px-3.5 pr-10 text-sm font-semibold text-slate-950 shadow-sm outline-none transition hover:border-slate-400 focus:border-violet-600 focus:ring-4 focus:ring-violet-600/15 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500";
+
+const textareaClass =
+  "mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm font-medium text-slate-950 shadow-sm outline-none transition placeholder:font-normal placeholder:text-slate-400 hover:border-slate-400 focus:border-violet-600 focus:ring-4 focus:ring-violet-600/15 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500";
+
+const primaryButtonClass =
+  "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-violet-700 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-violet-900/15 transition hover:-translate-y-0.5 hover:bg-violet-800 hover:shadow-lg hover:shadow-violet-900/20 active:translate-y-0 focus:outline-none focus:ring-4 focus:ring-violet-600/25 disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50";
+
+const secondaryButtonClass =
+  "inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-900 focus:outline-none focus:ring-4 focus:ring-violet-600/15 disabled:cursor-not-allowed disabled:opacity-50";
+
+const labelClass = "block text-sm font-bold text-slate-800";
+const helperClass = "mt-1.5 text-xs leading-5 text-slate-500";
 
 const emptyData: DashboardData = {
   countries: [],
@@ -74,16 +100,17 @@ const emptyData: DashboardData = {
   nests: [],
   cycles: [],
   selectedCycle: null,
-  budgets: [],
-  requests: [],
+  allocations: [],
+  entries: [],
+  items: [],
+  vendors: [],
   permissions: {
-    canCreateCycle: false,
-    canManageCycle: false,
-    canReview: false,
+    canManageCountry: false,
+    canRecordNestIds: [],
   },
 };
 
-function toNumber(value: number | string | null | undefined): number {
+function amount(value: number | string | null | undefined): number {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
 }
@@ -92,7 +119,7 @@ function money(value: number, currency: string): string {
   return new Intl.NumberFormat(undefined, {
     style: "currency",
     currency,
-    maximumFractionDigits: 0,
+    maximumFractionDigits: 2,
   }).format(value);
 }
 
@@ -106,39 +133,108 @@ function statusLabel(status: string): string {
   );
 }
 
-export function QuarterlyExpenseWorkspace({ mode = "planning" }: Props) {
-  const readOnly = mode === "finance";
+function StatusBadge({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    draft: "border-amber-200 bg-amber-50 text-amber-800",
+    open: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    in_review: "border-blue-200 bg-blue-50 text-blue-800",
+    approved: "border-violet-200 bg-violet-50 text-violet-800",
+    closed: "border-slate-200 bg-slate-100 text-slate-700",
+  };
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold ${
+        styles[status] ?? "border-slate-200 bg-slate-100 text-slate-700"
+      }`}
+    >
+      <span
+        className={`mr-1.5 h-1.5 w-1.5 rounded-full ${
+          status === "open"
+            ? "bg-emerald-600"
+            : status === "draft"
+              ? "bg-amber-500"
+              : status === "closed"
+                ? "bg-slate-500"
+                : "bg-violet-600"
+        }`}
+      />
+      {statusLabel(status)}
+    </span>
+  );
+}
+
+function MetricIcon({ type }: { type: "allocation" | "spent" | "remaining" }) {
+  if (type === "allocation") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5">
+        <path
+          d="M4 7.5h16M6.5 4.5h11A2.5 2.5 0 0 1 20 7v10a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17V7a2.5 2.5 0 0 1 2.5-2.5Z"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.7"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M15.5 13h2"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.7"
+          strokeLinecap="round"
+        />
+      </svg>
+    );
+  }
+
+  if (type === "spent") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5">
+        <path
+          d="M5 19V9m7 10V5m7 14v-7"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5">
+      <path
+        d="M5 12h14m-5-5 5 5-5 5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function QuarterlyExpenseWorkspace({
+  mode = "planning",
+}: {
+  mode?: "planning" | "finance";
+}) {
   const [data, setData] = useState<DashboardData>(emptyData);
   const [country, setCountry] = useState("");
   const [cycleId, setCycleId] = useState("");
+  const [expenseNestId, setExpenseNestId] = useState("");
+  const [allocationDrafts, setAllocationDrafts] = useState<
+    Record<string, string>
+  >({});
+  const [itemId, setItemId] = useState("");
+  const [vendorId, setVendorId] = useState("");
+  const [expenseAmount, setExpenseAmount] = useState("");
+  const [comment, setComment] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-
-  const [newYear, setNewYear] = useState(new Date().getFullYear());
-  const [newQuarter, setNewQuarter] = useState(1);
-  const [budgetForm, setBudgetForm] = useState({
-    department: "",
-    glCode: "",
-    category: "",
-    amount: "",
-    nestId: "",
-    notes: "",
-  });
-  const [requestForm, setRequestForm] = useState({
-    department: "",
-    glCode: "",
-    category: "",
-    expenseType: "recurring",
-    description: "",
-    unitMeasure: "",
-    quantity: "",
-    amount: "",
-    vendorName: "",
-    nestId: "",
-    note: "",
-  });
 
   const load = useCallback(
     async (selection?: { country?: string; cycleId?: string }) => {
@@ -160,29 +256,39 @@ export function QuarterlyExpenseWorkspace({ mode = "planning" }: Props) {
         const result = await response.json();
 
         if (!response.ok) {
-          throw new Error(
-            result.error ?? "Could not load expense planning data.",
-          );
+          throw new Error(result.error ?? "Unable to load expense data.");
         }
 
         const next = result as DashboardData;
         setData(next);
+        setCountry(next.country);
+        setCycleId(next.selectedCycle?.cycle_id ?? "");
+        setAllocationDrafts(
+          Object.fromEntries(
+            next.allocations.map((allocation) => [
+              String(allocation.nest_id),
+              String(allocation.allocation_amount),
+            ]),
+          ),
+        );
 
-        if (!country && next.country) setCountry(next.country);
-        if (!cycleId && next.selectedCycle?.cycle_id) {
-          setCycleId(next.selectedCycle.cycle_id);
+        if (
+          !expenseNestId ||
+          !next.permissions.canRecordNestIds.includes(expenseNestId)
+        ) {
+          setExpenseNestId(next.permissions.canRecordNestIds[0] ?? "");
         }
       } catch (loadError) {
         setError(
           loadError instanceof Error
             ? loadError.message
-            : "Could not load expense planning data.",
+            : "Unable to load expense data.",
         );
       } finally {
         setLoading(false);
       }
     },
-    [country, cycleId],
+    [country, cycleId, expenseNestId],
   );
 
   useEffect(() => {
@@ -190,86 +296,55 @@ export function QuarterlyExpenseWorkspace({ mode = "planning" }: Props) {
   }, [load]);
 
   const activeCycle = data.selectedCycle;
-  const canManage = data.permissions.canManageCycle;
-  const canReview = data.permissions.canReview;
-  const canEdit =
-    canManage &&
-    activeCycle !== null &&
-    (activeCycle.status === "draft" || activeCycle.status === "open");
+  const canManageCountry = data.permissions.canManageCountry;
+  const canRecordNestIds = data.permissions.canRecordNestIds;
 
-  const categoryTotals = useMemo(() => {
-    const groups = new Map<
-      string,
-      {
-        key: string;
-        glCode: string;
-        category: string;
-        budget: number;
-        requested: number;
-        approved: number;
-      }
-    >();
+  const spendByNest = useMemo(() => {
+    const totals = new Map<number, number>();
 
-    for (const budget of data.budgets) {
-      const key = `${budget.gl_code}::${budget.category}`;
-      const existing = groups.get(key) ?? {
-        key,
-        glCode: budget.gl_code,
-        category: budget.category,
-        budget: 0,
-        requested: 0,
-        approved: 0,
-      };
-
-      existing.budget += toNumber(budget.budget_amount);
-      groups.set(key, existing);
+    for (const entry of data.entries) {
+      totals.set(
+        entry.nest_id,
+        (totals.get(entry.nest_id) ?? 0) + amount(entry.amount),
+      );
     }
 
-    for (const item of data.requests) {
-      const key = `${item.gl_code}::${item.category}`;
-      const existing = groups.get(key) ?? {
-        key,
-        glCode: item.gl_code,
-        category: item.category,
-        budget: 0,
-        requested: 0,
-        approved: 0,
-      };
+    return totals;
+  }, [data.entries]);
 
-      existing.requested += toNumber(item.requested_amount);
-      existing.approved +=
-        item.status === "approved" ? toNumber(item.approved_amount) : 0;
-      groups.set(key, existing);
-    }
-
-    return [...groups.values()].sort((a, b) =>
-      a.category.localeCompare(b.category),
-    );
-  }, [data.budgets, data.requests]);
-
-  const totals = useMemo(
+  const allocationByNest = useMemo(
     () =>
-      categoryTotals.reduce(
-        (acc, row) => ({
-          budget: acc.budget + row.budget,
-          requested: acc.requested + row.requested,
-          approved: acc.approved + row.approved,
-        }),
-        { budget: 0, requested: 0, approved: 0 },
+      new Map(
+        data.allocations.map((allocation) => [
+          allocation.nest_id,
+          amount(allocation.allocation_amount),
+        ]),
       ),
-    [categoryTotals],
+    [data.allocations],
   );
 
-  const maxBar = Math.max(
-    1,
-    ...categoryTotals.flatMap((row) => [
-      row.budget,
-      row.requested,
-      row.approved,
-    ]),
+  const totalAllocation = data.allocations.reduce(
+    (sum, allocation) => sum + amount(allocation.allocation_amount),
+    0,
   );
+  const totalSpend = data.entries.reduce(
+    (sum, entry) => sum + amount(entry.amount),
+    0,
+  );
+  const totalRemaining = totalAllocation - totalSpend;
 
-  async function postAction(payload: Record<string, unknown>) {
+  const selectedNest = data.nests.find((nest) => nest.id === expenseNestId);
+  const selectedNestNumber = Number(expenseNestId);
+  const selectedAllocation = allocationByNest.get(selectedNestNumber) ?? 0;
+  const selectedSpend = spendByNest.get(selectedNestNumber) ?? 0;
+  const enteredAmount = amount(expenseAmount);
+  const projectedRemaining =
+    selectedAllocation - selectedSpend - enteredAmount;
+  const hasAllocation = allocationByNest.has(selectedNestNumber);
+
+  async function post(
+    payload: Record<string, unknown>,
+  ): Promise<ApiResult | null> {
     setSaving(true);
     setError("");
     setMessage("");
@@ -280,32 +355,19 @@ export function QuarterlyExpenseWorkspace({ mode = "planning" }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const result = await response.json();
+      const result = (await response.json()) as ApiResult;
 
       if (!response.ok) {
-        throw new Error(result.error ?? "Could not save the expense data.");
+        throw new Error(result.error ?? "Unable to save.");
       }
 
-      setMessage("Saved.");
-
-      if (result.cycle?.cycle_id) {
-        setCycleId(result.cycle.cycle_id);
-        await load({
-          country: result.cycle.country,
-          cycleId: result.cycle.cycle_id,
-        });
-      } else {
-        await load();
-      }
-
-      return true;
+      await load();
+      return result;
     } catch (saveError) {
       setError(
-        saveError instanceof Error
-          ? saveError.message
-          : "Could not save the expense data.",
+        saveError instanceof Error ? saveError.message : "Unable to save.",
       );
-      return false;
+      return null;
     } finally {
       setSaving(false);
     }
@@ -313,216 +375,215 @@ export function QuarterlyExpenseWorkspace({ mode = "planning" }: Props) {
 
   async function createCycle(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const form = new FormData(event.currentTarget);
 
-    const ok = await postAction({
+    const result = await post({
       action: "create_cycle",
       country,
-      fiscalYear: newYear,
-      quarter: newQuarter,
+      fiscalYear: form.get("fiscalYear"),
+      quarter: form.get("quarter"),
     });
 
-    if (ok) setMessage(`Created Q${newQuarter} ${newYear} as a draft cycle.`);
-  }
-
-  async function addBudget(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!activeCycle) return;
-
-    const ok = await postAction({
-      action: "add_budget",
-      cycleId: activeCycle.cycle_id,
-      department: budgetForm.department,
-      glCode: budgetForm.glCode,
-      category: budgetForm.category,
-      budgetAmount: budgetForm.amount,
-      nestId: budgetForm.nestId || null,
-      notes: budgetForm.notes,
-    });
-
-    if (ok) {
-      setBudgetForm({
-        department: "",
-        glCode: "",
-        category: "",
-        amount: "",
-        nestId: "",
-        notes: "",
+    if (result?.cycle?.cycle_id) {
+      setCycleId(result.cycle.cycle_id);
+      await load({
+        country: result.cycle.country,
+        cycleId: result.cycle.cycle_id,
       });
+      setMessage("Quarter created. Add nest allocations, then open it.");
     }
   }
 
-  async function addRequest(event: FormEvent<HTMLFormElement>) {
+  async function saveAllocation(nestId: string) {
+    if (!activeCycle) return;
+
+    const result = await post({
+      action: "save_allocation",
+      cycleId: activeCycle.cycle_id,
+      nestId,
+      allocationAmount: allocationDrafts[nestId] ?? "0",
+    });
+
+    if (result) setMessage("Nest allocation saved.");
+  }
+
+  async function addExpense(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!activeCycle) return;
 
-    const ok = await postAction({
-      action: "add_request",
+    const result = await post({
+      action: "add_expense",
       cycleId: activeCycle.cycle_id,
-      department: requestForm.department,
-      glCode: requestForm.glCode,
-      category: requestForm.category,
-      expenseType: requestForm.expenseType,
-      description: requestForm.description,
-      unitMeasure: requestForm.unitMeasure,
-      quantity: requestForm.quantity || null,
-      requestedAmount: requestForm.amount,
-      vendorName: requestForm.vendorName,
-      nestId: requestForm.nestId || null,
-      note: requestForm.note,
+      nestId: expenseNestId,
+      itemId,
+      vendorId,
+      amount: expenseAmount,
+      comment,
     });
 
-    if (ok) {
-      setRequestForm({
-        department: "",
-        glCode: "",
-        category: "",
-        expenseType: "recurring",
-        description: "",
-        unitMeasure: "",
-        quantity: "",
-        amount: "",
-        vendorName: "",
-        nestId: "",
-        note: "",
-      });
+    if (result) {
+      setExpenseAmount("");
+      setComment("");
+      setMessage("Expense saved. The nest balance has been updated.");
     }
   }
 
-  const ownerCycleActions: Record<
-    string,
-    { label: string; status: string } | null
-  > = {
-    draft: { label: "Open this quarter", status: "open" },
-    open: { label: "Send to Finance", status: "in_review" },
-    in_review: null,
-    approved: null,
-    closed: null,
-  };
-
-  const reviewerCycleActions: Record<
-    string,
-    { label: string; status: string } | null
-  > = {
-    draft: null,
-    open: null,
-    in_review: { label: "Approve cycle", status: "approved" },
-    approved: { label: "Close quarter", status: "closed" },
-    closed: null,
-  };
-
-  const cycleAction = activeCycle
-    ? canManage
-      ? ownerCycleActions[activeCycle.status]
-      : canReview
-        ? reviewerCycleActions[activeCycle.status]
-        : null
-    : null;
+  const spendAccess =
+    canRecordNestIds.length > 0 && activeCycle?.status === "open";
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <section className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-        <div>
-          <p className="text-xs font-bold tracking-[0.16em] text-violet-700">
-            {readOnly ? "FINANCE · QUARTERLY EXPENSES" : "QUARTERLY PLANNING"}
-          </p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">
-            {readOnly ? "Expense analysis" : "Operating expense plans"}
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-            Review non-inventory spending such as fuel, travel, contractors,
-            and insurance by quarter.
-          </p>
+    <main className="mx-auto max-w-7xl space-y-6 pb-10">
+      <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-violet-950 via-violet-900 to-indigo-900 p-6 text-white shadow-xl shadow-violet-950/10 sm:p-8">
+        <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
+          <div className="max-w-2xl">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-violet-100">
+              <span className="h-2 w-2 rounded-full bg-emerald-400" />
+              {mode === "finance" ? "Finance workspace" : "Nest workspace"}
+            </div>
+
+            <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">
+              {mode === "finance"
+                ? "Quarterly expense analysis"
+                : "Nest expense tracker"}
+            </h1>
+
+            <p className="mt-3 max-w-xl text-sm leading-6 text-violet-100/90 sm:text-base">
+              See quarterly allocations, track spending, and understand what
+              remains available for each nest.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 sm:flex">
+            <label className="min-w-32 text-xs font-bold uppercase tracking-wide text-violet-100">
+              Country
+              <div className="relative">
+                <select
+                  value={country}
+                  onChange={(event) => {
+                    setCountry(event.target.value);
+                    setCycleId("");
+                    void load({
+                      country: event.target.value,
+                      cycleId: "",
+                    });
+                  }}
+                  className="mt-1.5 h-12 w-full appearance-none rounded-xl border border-white/20 bg-white px-3.5 pr-9 text-sm font-bold normal-case tracking-normal text-slate-950 shadow-lg outline-none transition hover:bg-violet-50 focus:ring-4 focus:ring-white/30"
+                >
+                  {data.countries.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+                <span className="pointer-events-none absolute right-3 top-1/2 mt-0.5 -translate-y-1/2 text-slate-500">
+                  ▾
+                </span>
+              </div>
+            </label>
+
+            <label className="min-w-40 text-xs font-bold uppercase tracking-wide text-violet-100">
+              Quarter
+              <div className="relative">
+                <select
+                  value={cycleId}
+                  onChange={(event) => {
+                    setCycleId(event.target.value);
+                    void load({ cycleId: event.target.value });
+                  }}
+                  className="mt-1.5 h-12 w-full appearance-none rounded-xl border border-white/20 bg-white px-3.5 pr-9 text-sm font-bold normal-case tracking-normal text-slate-950 shadow-lg outline-none transition hover:bg-violet-50 focus:ring-4 focus:ring-white/30"
+                >
+                  <option value="">Select a quarter</option>
+                  {data.cycles.map((cycle) => (
+                    <option key={cycle.cycle_id} value={cycle.cycle_id}>
+                      {cycleLabel(cycle)} · {statusLabel(cycle.status)}
+                    </option>
+                  ))}
+                </select>
+                <span className="pointer-events-none absolute right-3 top-1/2 mt-0.5 -translate-y-1/2 text-slate-500">
+                  ▾
+                </span>
+              </div>
+            </label>
+          </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <label className="grid gap-1 text-xs font-semibold text-slate-600">
-            Country
-            <select
-              value={country}
-              onChange={(event) => {
-                setCountry(event.target.value);
-                setCycleId("");
-                void load({ country: event.target.value, cycleId: "" });
-              }}
-              className="h-10 min-w-36 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
-            >
-              {data.countries.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="grid gap-1 text-xs font-semibold text-slate-600">
-            Quarter
-            <select
-              value={cycleId}
-              onChange={(event) => {
-                setCycleId(event.target.value);
-                void load({ cycleId: event.target.value });
-              }}
-              className="h-10 min-w-40 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
-            >
-              <option value="">No cycle</option>
-              {data.cycles.map((cycle) => (
-                <option key={cycle.cycle_id} value={cycle.cycle_id}>
-                  {cycleLabel(cycle)} · {statusLabel(cycle.status)}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+        {activeCycle && (
+          <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-white/15 pt-5">
+            <span className="text-sm font-semibold text-white">
+              {activeCycle.country} · {cycleLabel(activeCycle)}
+            </span>
+            <StatusBadge status={activeCycle.status} />
+            <span className="text-sm text-violet-100">
+              {data.entries.length} recorded{" "}
+              {data.entries.length === 1 ? "expense" : "expenses"}
+            </span>
+          </div>
+        )}
       </section>
 
       {error && (
         <div
           role="alert"
-          className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800"
+          className="flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3.5 text-sm font-medium text-rose-900 shadow-sm"
         >
-          {error}
+          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-100 font-bold text-rose-700">
+            !
+          </span>
+          <p>{error}</p>
         </div>
       )}
 
       {message && !error && (
         <div
           role="status"
-          className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+          className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3.5 text-sm font-semibold text-emerald-900 shadow-sm"
         >
-          {message}
+          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+            ✓
+          </span>
+          <p>{message}</p>
         </div>
       )}
 
-      {data.permissions.canCreateCycle && !readOnly && (
-        <section className="rounded-2xl border border-violet-100 bg-gradient-to-br from-violet-50 to-white p-5 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      {canManageCountry && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
             <div>
-              <h2 className="font-semibold text-slate-950">Quarterly cycle</h2>
-              <p className="mt-1 text-sm text-slate-600">
-                Create a draft quarter, enter its budgets and requests, then
-                send it to Finance for review.
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-violet-700">
+                Planning controls
+              </p>
+              <h2 className="mt-1 text-xl font-bold text-slate-950">
+                Create a quarter
+              </h2>
+              <p className="mt-1.5 max-w-xl text-sm leading-5 text-slate-600">
+                Create a draft quarter, assign an amount to each nest, then
+                open it for expense entries.
               </p>
             </div>
 
-            <form onSubmit={createCycle} className="flex flex-wrap items-end gap-2">
-              <label className="grid gap-1 text-xs font-semibold text-slate-600">
+            <form
+              onSubmit={createCycle}
+              className="grid gap-3 sm:grid-cols-[140px_130px_auto]"
+            >
+              <label className={labelClass}>
                 Fiscal year
                 <input
+                  required
+                  name="fiscalYear"
                   type="number"
-                  min={2020}
-                  max={2100}
-                  value={newYear}
-                  onChange={(event) => setNewYear(Number(event.target.value))}
-                  className="h-10 w-28 rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                  min="2020"
+                  max="2100"
+                  defaultValue={new Date().getFullYear()}
+                  className={inputClass}
                 />
               </label>
 
-              <label className="grid gap-1 text-xs font-semibold text-slate-600">
+              <label className={labelClass}>
                 Quarter
                 <select
-                  value={newQuarter}
-                  onChange={(event) => setNewQuarter(Number(event.target.value))}
-                  className="h-10 w-24 rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                  name="quarter"
+                  defaultValue="1"
+                  className={selectClass}
                 >
                   {[1, 2, 3, 4].map((quarter) => (
                     <option key={quarter} value={quarter}>
@@ -534,579 +595,698 @@ export function QuarterlyExpenseWorkspace({ mode = "planning" }: Props) {
 
               <button
                 disabled={saving || !country}
-                className="h-10 rounded-xl bg-violet-700 px-4 text-sm font-bold text-white shadow-sm hover:bg-violet-800 disabled:opacity-50"
+                className={`${primaryButtonClass} self-end`}
               >
-                {saving ? "Saving…" : "Create quarter"}
+                {saving ? (
+                  <>
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                    Creating…
+                  </>
+                ) : (
+                  "Create quarter"
+                )}
               </button>
             </form>
           </div>
         </section>
       )}
 
-      {activeCycle && (canManage || canReview) && cycleAction && (
-        <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-100 bg-white p-4">
-          <p className="text-sm text-slate-600">
-            Selected cycle:{" "}
-            <strong className="text-slate-900">{cycleLabel(activeCycle)}</strong>
-            {" · "}
-            {statusLabel(activeCycle.status)}
-          </p>
-
-          <div className="flex flex-wrap gap-2">
-            {canReview && activeCycle.status === "in_review" && (
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() =>
-                  void postAction({
-                    action: "set_cycle_status",
-                    cycleId: activeCycle.cycle_id,
-                    status: "open",
-                  })
-                }
-                className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              >
-                Return to owner
-              </button>
-            )}
-
-            <button
-              type="button"
-              disabled={saving}
-              onClick={() =>
-                void postAction({
-                  action: "set_cycle_status",
-                  cycleId: activeCycle.cycle_id,
-                  status: cycleAction.status,
-                })
-              }
-              className="rounded-lg border border-violet-200 px-3 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-50 disabled:opacity-50"
-            >
-              {cycleAction.label}
-            </button>
-          </div>
-        </section>
-      )}
-
       {loading && !data.country ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
-          Loading quarterly expense data…
-        </div>
-      ) : !activeCycle ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
-          <h2 className="font-semibold text-slate-900">
-            No quarter has been created yet
-          </h2>
-          <p className="mt-2 text-sm text-slate-500">
-            {readOnly
-              ? "A planning owner can create the first cycle from Quarterly Planning."
-              : "Create a quarter above to start entering budgets and expenses."}
+        <section className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm">
+          <span className="mx-auto block h-8 w-8 animate-spin rounded-full border-4 border-violet-100 border-t-violet-700" />
+          <p className="mt-4 text-sm font-semibold text-slate-700">
+            Loading quarterly expense data…
           </p>
-        </div>
+        </section>
+      ) : !activeCycle ? (
+        <section className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center shadow-sm">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-50 text-violet-700">
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              className="h-7 w-7"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+            >
+              <path
+                d="M5 5.5h14v14H5zM8 3.5v4m8-4v4M5 10h14"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+          <h2 className="mt-4 text-lg font-bold text-slate-950">
+            No quarter selected
+          </h2>
+          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600">
+            {canManageCountry
+              ? "Create a quarter above, add the nest allocations, and open it when it is ready."
+              : "No quarterly expense plan is available for your assigned country or nest yet."}
+          </p>
+        </section>
       ) : (
         <>
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <section className="grid gap-4 sm:grid-cols-3">
             {[
-              ["Budget", totals.budget],
-              ["Requested", totals.requested],
-              ["Approved", totals.approved],
-              ["Remaining vs. budget", totals.budget - totals.approved],
-            ].map(([label, value]) => (
-              <div
-                key={String(label)}
-                className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+              {
+                label: "Total allocated",
+                value: totalAllocation,
+                icon: "allocation" as const,
+                color: "violet",
+              },
+              {
+                label: "Total spent",
+                value: totalSpend,
+                icon: "spent" as const,
+                color: "blue",
+              },
+              {
+                label: "Remaining",
+                value: totalRemaining,
+                icon: "remaining" as const,
+                color: totalRemaining < 0 ? "rose" : "emerald",
+              },
+            ].map((metric) => (
+              <article
+                key={metric.label}
+                className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md sm:p-6"
               >
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  {label}
-                </p>
-                <p className="mt-2 text-2xl font-bold text-slate-950">
-                  {money(Number(value), data.currencyCode)}
-                </p>
-                <p className="mt-1 text-xs text-slate-500">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-600">
+                      {metric.label}
+                    </p>
+                    <p
+                      className={`mt-2 text-2xl font-extrabold tracking-tight sm:text-3xl ${
+                        metric.color === "rose"
+                          ? "text-rose-700"
+                          : "text-slate-950"
+                      }`}
+                    >
+                      {money(metric.value, data.currencyCode)}
+                    </p>
+                  </div>
+                  <span
+                    className={`flex h-11 w-11 items-center justify-center rounded-xl ${
+                      metric.color === "violet"
+                        ? "bg-violet-100 text-violet-800"
+                        : metric.color === "blue"
+                          ? "bg-blue-100 text-blue-800"
+                          : metric.color === "rose"
+                            ? "bg-rose-100 text-rose-800"
+                            : "bg-emerald-100 text-emerald-800"
+                    }`}
+                  >
+                    <MetricIcon type={metric.icon} />
+                  </span>
+                </div>
+                <p className="mt-3 text-xs font-medium text-slate-500">
                   {cycleLabel(activeCycle)} · {country}
                 </p>
-              </div>
+              </article>
             ))}
           </section>
 
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-100 px-5 py-4">
-              <h2 className="font-semibold text-slate-950">
-                Budget and request comparison
-              </h2>
-              <p className="mt-1 text-sm text-slate-500">
-                Compare allocated budget with requested and approved amounts by
-                GL category.
-              </p>
-            </div>
+          {canManageCountry && (
+            <section className="overflow-hidden rounded-2xl border border-violet-200 bg-white shadow-sm">
+              <div className="flex flex-col justify-between gap-4 border-b border-violet-100 bg-violet-50/70 px-5 py-5 sm:flex-row sm:items-center sm:px-6">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-violet-700">
+                    Allocation setup
+                  </p>
+                  <h2 className="mt-1 text-lg font-bold text-slate-950">
+                    Nest quarterly amounts
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Set each nest’s spending limit. Saved expenses reduce its
+                    remaining balance.
+                  </p>
+                </div>
 
-            <div className="space-y-5 p-5">
-              {categoryTotals.length === 0 ? (
-                <p className="py-5 text-center text-sm text-slate-500">
-                  Add budget categories or expense requests to build the
-                  comparison.
+                {activeCycle.status === "draft" && (
+                  <button
+                    type="button"
+                    disabled={saving || data.allocations.length === 0}
+                    onClick={() =>
+                      void post({
+                        action: "set_cycle_status",
+                        cycleId: activeCycle.cycle_id,
+                        status: "open",
+                      }).then((result) => {
+                        if (result) {
+                          setMessage("Quarter opened for nest expenses.");
+                        }
+                      })
+                    }
+                    className={primaryButtonClass}
+                    title={
+                      data.allocations.length === 0
+                        ? "Add at least one nest allocation first"
+                        : undefined
+                    }
+                  >
+                    {saving ? "Updating…" : "Open for expenses"}
+                  </button>
+                )}
+
+                {activeCycle.status === "open" && (
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() =>
+                      void post({
+                        action: "set_cycle_status",
+                        cycleId: activeCycle.cycle_id,
+                        status: "closed",
+                      }).then((result) => {
+                        if (result) setMessage("Quarter closed.");
+                      })
+                    }
+                    className={secondaryButtonClass}
+                  >
+                    Close quarter
+                  </button>
+                )}
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[760px] text-left text-sm">
+                  <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-5 py-3.5">Nest</th>
+                      <th className="px-5 py-3.5">Allocated</th>
+                      <th className="px-5 py-3.5">Spent</th>
+                      <th className="px-5 py-3.5">Remaining</th>
+                      <th className="px-5 py-3.5">Set amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.nests.map((nest) => {
+                      const nestNumber = Number(nest.id);
+                      const allocated =
+                        allocationByNest.get(nestNumber) ?? 0;
+                      const spent = spendByNest.get(nestNumber) ?? 0;
+                      const remaining = allocated - spent;
+                      const draft = allocationDrafts[nest.id] ?? "";
+                      const allocationExists =
+                        allocationByNest.has(nestNumber);
+
+                      return (
+                        <tr
+                          key={nest.id}
+                          className="border-t border-slate-100 transition hover:bg-violet-50/40"
+                        >
+                          <td className="px-5 py-4">
+                            <p className="font-bold text-slate-950">
+                              {nest.code}
+                            </p>
+                            <p className="mt-0.5 text-xs text-slate-500">
+                              {nest.name}
+                            </p>
+                          </td>
+                          <td className="px-5 py-4 font-semibold text-slate-800">
+                            {money(allocated, data.currencyCode)}
+                          </td>
+                          <td className="px-5 py-4 font-semibold text-slate-800">
+                            {money(spent, data.currencyCode)}
+                          </td>
+                          <td
+                            className={`px-5 py-4 font-bold ${
+                              remaining < 0
+                                ? "text-rose-700"
+                                : "text-emerald-700"
+                            }`}
+                          >
+                            {money(remaining, data.currencyCode)}
+                            {remaining < 0 && (
+                              <span className="ml-2 rounded-full bg-rose-100 px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide text-rose-700">
+                                Over
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-5 py-4">
+                            <div className="flex items-center gap-2">
+                              <label className="sr-only" htmlFor={`allocation-${nest.id}`}>
+                                Allocation for {nest.code}
+                              </label>
+                              <input
+                                id={`allocation-${nest.id}`}
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={draft}
+                                disabled={activeCycle.status === "closed"}
+                                onChange={(event) =>
+                                  setAllocationDrafts((current) => ({
+                                    ...current,
+                                    [nest.id]: event.target.value,
+                                  }))
+                                }
+                                className="h-10 w-36 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-violet-600 focus:ring-4 focus:ring-violet-600/15 disabled:bg-slate-100"
+                                placeholder="0.00"
+                              />
+                              <button
+                                type="button"
+                                disabled={
+                                  saving ||
+                                  activeCycle.status === "closed" ||
+                                  !draft
+                                }
+                                onClick={() => void saveAllocation(nest.id)}
+                                className={secondaryButtonClass}
+                              >
+                                {saving
+                                  ? "Saving…"
+                                  : allocationExists
+                                    ? "Update"
+                                    : "Save"}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          {spendAccess && (
+            <section className="overflow-hidden rounded-2xl border border-violet-200 bg-white shadow-md shadow-violet-950/5">
+              <div className="border-b border-slate-100 bg-gradient-to-r from-violet-50 to-white px-5 py-5 sm:px-6">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-violet-700">
+                  New expense
                 </p>
-              ) : (
-                categoryTotals.map((row) => (
-                  <div key={row.key} className="space-y-2">
-                    <div className="flex flex-wrap items-baseline justify-between gap-2">
-                      <div>
-                        <span className="font-semibold text-slate-900">
-                          {row.category}
-                        </span>
-                        <span className="ml-2 text-xs text-slate-500">
-                          {row.glCode}
-                        </span>
-                      </div>
-                      <span className="text-xs text-slate-500">
-                        Budget {money(row.budget, data.currencyCode)} ·
-                        Requested {money(row.requested, data.currencyCode)} ·
-                        Approved {money(row.approved, data.currencyCode)}
-                      </span>
+                <h2 className="mt-1 text-xl font-bold text-slate-950">
+                  Record nest spending
+                </h2>
+                <p className="mt-1.5 text-sm text-slate-600">
+                  Choose the expense item and vendor. The balance preview
+                  updates before you save.
+                </p>
+              </div>
+
+              <form onSubmit={addExpense} className="space-y-5 p-5 sm:p-6">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className={labelClass}>
+                    Nest
+                    <select
+                      required
+                      value={expenseNestId}
+                      onChange={(event) =>
+                        setExpenseNestId(event.target.value)
+                      }
+                      className={selectClass}
+                    >
+                      {data.nests
+                        .filter((nest) =>
+                          canRecordNestIds.includes(nest.id),
+                        )
+                        .map((nest) => (
+                          <option key={nest.id} value={nest.id}>
+                            {nest.code} · {nest.name}
+                          </option>
+                        ))}
+                    </select>
+                    <span className={helperClass}>
+                      Only nests assigned to your account are available.
+                    </span>
+                  </label>
+
+                  <label className={labelClass}>
+                    Expense item
+                    <select
+                      required
+                      value={itemId}
+                      onChange={(event) => setItemId(event.target.value)}
+                      className={selectClass}
+                    >
+                      <option value="">Choose an expense item</option>
+                      {data.items.map((item) => (
+                        <option key={item.item_id} value={item.item_id}>
+                          {item.item_code} · {item.item_name}
+                        </option>
+                      ))}
+                    </select>
+                    <span className={helperClass}>
+                      Select an item from this country’s expense list.
+                    </span>
+                  </label>
+
+                  <label className={labelClass}>
+                    Vendor
+                    <select
+                      required
+                      value={vendorId}
+                      onChange={(event) => setVendorId(event.target.value)}
+                      className={selectClass}
+                    >
+                      <option value="">Choose a vendor</option>
+                      {data.vendors.map((vendor) => (
+                        <option key={vendor.vendor_id} value={vendor.vendor_id}>
+                          {vendor.vendor_name}
+                        </option>
+                      ))}
+                    </select>
+                    <span className={helperClass}>
+                      Vendors are listed for the selected country.
+                    </span>
+                  </label>
+
+                  <label className={labelClass}>
+                    Cost{" "}
+                    <span className="font-semibold text-slate-500">
+                      ({data.currencyCode})
+                    </span>
+                    <input
+                      required
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      inputMode="decimal"
+                      value={expenseAmount}
+                      onChange={(event) =>
+                        setExpenseAmount(event.target.value)
+                      }
+                      className={inputClass}
+                      placeholder="Enter the amount"
+                    />
+                    <span className={helperClass}>
+                      Enter the amount charged by the vendor.
+                    </span>
+                  </label>
+
+                  <label className={`${labelClass} sm:col-span-2`}>
+                    Activity or comment{" "}
+                    <span className="font-medium text-slate-500">
+                      (optional)
+                    </span>
+                    <textarea
+                      value={comment}
+                      onChange={(event) => setComment(event.target.value)}
+                      rows={3}
+                      className={textareaClass}
+                      placeholder="Describe what was purchased or the work performed."
+                    />
+                  </label>
+                </div>
+
+                <div
+                  className={`rounded-2xl border p-4 sm:p-5 ${
+                    projectedRemaining < 0 && enteredAmount > 0
+                      ? "border-rose-200 bg-rose-50"
+                      : "border-violet-200 bg-violet-50/70"
+                  }`}
+                  aria-live="polite"
+                >
+                  <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+                    <div>
+                      <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-slate-600">
+                        Balance preview
+                      </p>
+                      <p className="mt-1 text-sm font-bold text-slate-950">
+                        {selectedNest
+                          ? `${selectedNest.code} · ${selectedNest.name}`
+                          : "Selected nest"}
+                      </p>
                     </div>
 
-                    {[
-                      ["Budget", row.budget, "bg-slate-400"],
-                      ["Requested", row.requested, "bg-violet-500"],
-                      ["Approved", row.approved, "bg-emerald-500"],
-                    ].map(([label, value, color]) => (
-                      <div
-                        key={String(label)}
-                        className="flex items-center gap-3"
+                    <div className="text-left sm:text-right">
+                      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                        Remaining after save
+                      </p>
+                      <p
+                        className={`mt-1 text-2xl font-extrabold tracking-tight ${
+                          projectedRemaining < 0 && enteredAmount > 0
+                            ? "text-rose-700"
+                            : "text-emerald-700"
+                        }`}
                       >
-                        <span className="w-20 shrink-0 text-[11px] text-slate-500">
-                          {label}
-                        </span>
-                        <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-100">
-                          <div
-                            className={`h-full rounded-full ${color}`}
-                            style={{
-                              width: `${Math.min(
-                                100,
-                                (Number(value) / maxBar) * 100,
-                              )}%`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    ))}
+                        {money(projectedRemaining, data.currencyCode)}
+                      </p>
+                    </div>
                   </div>
-                ))
-              )}
-            </div>
-          </section>
 
-          {canEdit && !readOnly && (
-            <section className="grid gap-5 xl:grid-cols-2">
-              <form
-                onSubmit={addBudget}
-                className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-              >
-                <div>
-                  <h2 className="font-semibold text-slate-950">
-                    Add category budget
-                  </h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Set the planned amount for a GL category in this quarter.
+                  <div className="mt-4 grid gap-3 border-t border-slate-200/80 pt-4 sm:grid-cols-3">
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500">
+                        Allocated
+                      </p>
+                      <p className="mt-1 text-sm font-bold text-slate-900">
+                        {money(selectedAllocation, data.currencyCode)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500">
+                        Already spent
+                      </p>
+                      <p className="mt-1 text-sm font-bold text-slate-900">
+                        {money(selectedSpend, data.currencyCode)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500">
+                        This expense
+                      </p>
+                      <p className="mt-1 text-sm font-bold text-slate-900">
+                        {money(enteredAmount, data.currencyCode)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {projectedRemaining < 0 && enteredAmount > 0 && (
+                    <p className="mt-4 rounded-xl border border-rose-200 bg-white/70 px-3 py-2 text-sm font-bold text-rose-800">
+                      This expense will exceed the nest allocation. You can
+                      still save it; the over-allocation will remain visible.
+                    </p>
+                  )}
+
+                  {!hasAllocation && (
+                    <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-900">
+                      This nest has no allocation for the selected quarter.
+                      Ask the planning owner to add one.
+                    </p>
+                  )}
+                </div>
+
+                {(!data.items.length || !data.vendors.length) && (
+                  <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+                    This country’s expense item or vendor list is empty. The
+                    catalog must be populated before expenses can be recorded.
                   </p>
-                </div>
+                )}
 
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <input
-                    value={budgetForm.department}
-                    onChange={(event) =>
-                      setBudgetForm({
-                        ...budgetForm,
-                        department: event.target.value,
-                      })
-                    }
-                    placeholder="Department"
-                    className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
-                  />
-                  <input
-                    required
-                    value={budgetForm.glCode}
-                    onChange={(event) =>
-                      setBudgetForm({
-                        ...budgetForm,
-                        glCode: event.target.value,
-                      })
-                    }
-                    placeholder="GL code"
-                    className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
-                  />
-                  <input
-                    required
-                    value={budgetForm.category}
-                    onChange={(event) =>
-                      setBudgetForm({
-                        ...budgetForm,
-                        category: event.target.value,
-                      })
-                    }
-                    placeholder="Category"
-                    className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
-                  />
-                  <input
-                    required
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={budgetForm.amount}
-                    onChange={(event) =>
-                      setBudgetForm({
-                        ...budgetForm,
-                        amount: event.target.value,
-                      })
-                    }
-                    placeholder={`Budget amount (${data.currencyCode})`}
-                    className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
-                  />
-                  <select
-                    value={budgetForm.nestId}
-                    onChange={(event) =>
-                      setBudgetForm({
-                        ...budgetForm,
-                        nestId: event.target.value,
-                      })
-                    }
-                    className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
-                  >
-                    <option value="">Country-level budget</option>
-                    {data.nests.map((nest) => (
-                      <option key={nest.id} value={nest.id}>
-                        {nest.code} · {nest.name}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    value={budgetForm.notes}
-                    onChange={(event) =>
-                      setBudgetForm({
-                        ...budgetForm,
-                        notes: event.target.value,
-                      })
-                    }
-                    placeholder="Planning note (optional)"
-                    className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
-                  />
-                </div>
-
-                <button
-                  disabled={!canEdit || saving}
-                  className="h-10 rounded-xl bg-violet-700 px-4 text-sm font-bold text-white hover:bg-violet-800 disabled:opacity-50"
-                >
-                  Save budget
-                </button>
-              </form>
-
-              <form
-                onSubmit={addRequest}
-                className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-              >
-                <div>
-                  <h2 className="font-semibold text-slate-950">
-                    Add expense request
-                  </h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Record a planned expense without changing stock balances.
+                <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs leading-5 text-slate-500">
+                    Saving records the expense immediately and updates the
+                    balance.
                   </p>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <input
-                    value={requestForm.department}
-                    onChange={(event) =>
-                      setRequestForm({
-                        ...requestForm,
-                        department: event.target.value,
-                      })
+                  <button
+                    disabled={
+                      saving ||
+                      !hasAllocation ||
+                      !data.items.length ||
+                      !data.vendors.length
                     }
-                    placeholder="Department"
-                    className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
-                  />
-                  <input
-                    required
-                    value={requestForm.glCode}
-                    onChange={(event) =>
-                      setRequestForm({
-                        ...requestForm,
-                        glCode: event.target.value,
-                      })
-                    }
-                    placeholder="GL code"
-                    className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
-                  />
-                  <input
-                    required
-                    value={requestForm.category}
-                    onChange={(event) =>
-                      setRequestForm({
-                        ...requestForm,
-                        category: event.target.value,
-                      })
-                    }
-                    placeholder="Category"
-                    className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
-                  />
-                  <select
-                    value={requestForm.expenseType}
-                    onChange={(event) =>
-                      setRequestForm({
-                        ...requestForm,
-                        expenseType: event.target.value,
-                      })
-                    }
-                    className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
+                    className={primaryButtonClass}
                   >
-                    <option value="recurring">Recurring</option>
-                    <option value="one_off">One-off</option>
-                    <option value="nte_budget">NTE budget</option>
-                  </select>
-                  <input
-                    required
-                    value={requestForm.description}
-                    onChange={(event) =>
-                      setRequestForm({
-                        ...requestForm,
-                        description: event.target.value,
-                      })
-                    }
-                    placeholder="Expense description"
-                    className="h-10 rounded-lg border border-slate-200 px-3 text-sm sm:col-span-2"
-                  />
-                  <input
-                    required
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={requestForm.amount}
-                    onChange={(event) =>
-                      setRequestForm({
-                        ...requestForm,
-                        amount: event.target.value,
-                      })
-                    }
-                    placeholder={`Requested amount (${data.currencyCode})`}
-                    className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
-                  />
-                  <input
-                    value={requestForm.vendorName}
-                    onChange={(event) =>
-                      setRequestForm({
-                        ...requestForm,
-                        vendorName: event.target.value,
-                      })
-                    }
-                    placeholder="Vendor / provider (optional)"
-                    className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
-                  />
-                  <input
-                    value={requestForm.quantity}
-                    onChange={(event) =>
-                      setRequestForm({
-                        ...requestForm,
-                        quantity: event.target.value,
-                      })
-                    }
-                    placeholder="Quantity (optional)"
-                    className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
-                  />
-                  <input
-                    value={requestForm.unitMeasure}
-                    onChange={(event) =>
-                      setRequestForm({
-                        ...requestForm,
-                        unitMeasure: event.target.value,
-                      })
-                    }
-                    placeholder="Unit (e.g. per month)"
-                    className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
-                  />
-                  <select
-                    value={requestForm.nestId}
-                    onChange={(event) =>
-                      setRequestForm({
-                        ...requestForm,
-                        nestId: event.target.value,
-                      })
-                    }
-                    className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
-                  >
-                    <option value="">Country-level expense</option>
-                    {data.nests.map((nest) => (
-                      <option key={nest.id} value={nest.id}>
-                        {nest.code} · {nest.name}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    value={requestForm.note}
-                    onChange={(event) =>
-                      setRequestForm({
-                        ...requestForm,
-                        note: event.target.value,
-                      })
-                    }
-                    placeholder="Justification or note"
-                    className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
-                  />
+                    {saving ? (
+                      <>
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                        Saving expense…
+                      </>
+                    ) : (
+                      <>
+                        Save expense
+                        <span aria-hidden="true">→</span>
+                      </>
+                    )}
+                  </button>
                 </div>
-
-                <button
-                  disabled={!canEdit || saving}
-                  className="h-10 rounded-xl bg-violet-700 px-4 text-sm font-bold text-white hover:bg-violet-800 disabled:opacity-50"
-                >
-                  Save expense request
-                </button>
               </form>
             </section>
           )}
 
           <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-100 px-5 py-4">
-              <h2 className="font-semibold text-slate-950">Expense requests</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                Requests remain separate from consumables and inventory
-                movements.
-              </p>
+            <div className="flex flex-col justify-between gap-2 border-b border-slate-100 px-5 py-5 sm:flex-row sm:items-end sm:px-6">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-violet-700">
+                  Country overview
+                </p>
+                <h2 className="mt-1 text-xl font-bold text-slate-950">
+                  Nest comparison
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Compare allocation, spending, and balance for each nest you
+                  can access.
+                </p>
+              </div>
+              <span className="text-xs font-semibold text-slate-500">
+                {data.nests.length}{" "}
+                {data.nests.length === 1 ? "nest" : "nests"}
+              </span>
             </div>
 
-            {data.requests.length === 0 ? (
-              <p className="p-8 text-center text-sm text-slate-500">
-                No requests have been entered for this quarter.
-              </p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[850px] text-left text-sm">
-                  <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                    <tr>
-                      <th className="px-5 py-3">Expense</th>
-                      <th className="px-5 py-3">Category / GL</th>
-                      <th className="px-5 py-3">Nest</th>
-                      <th className="px-5 py-3">Requested</th>
-                      <th className="px-5 py-3">Approved</th>
-                      <th className="px-5 py-3">Status</th>
-                      <th className="px-5 py-3">Actions</th>
-                    </tr>
-                  </thead>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] text-left text-sm">
+                <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-5 py-3.5">Nest</th>
+                    <th className="px-5 py-3.5">Allocated</th>
+                    <th className="px-5 py-3.5">Spent</th>
+                    <th className="px-5 py-3.5">Remaining</th>
+                    <th className="px-5 py-3.5">Used</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.nests.map((nest) => {
+                    const nestNumber = Number(nest.id);
+                    const allocated =
+                      allocationByNest.get(nestNumber) ?? 0;
+                    const spent = spendByNest.get(nestNumber) ?? 0;
+                    const remaining = allocated - spent;
+                    const usage =
+                      allocated > 0 ? (spent / allocated) * 100 : 0;
 
-                  <tbody>
-                    {data.requests.map((expense) => (
+                    return (
                       <tr
-                        key={expense.expense_id}
-                        className="border-t border-slate-100"
+                        key={nest.id}
+                        className="border-t border-slate-100 transition hover:bg-violet-50/40"
                       >
                         <td className="px-5 py-4">
-                          <p className="font-medium text-slate-900">
-                            {expense.description}
+                          <p className="font-bold text-slate-950">
+                            {nest.code}
                           </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {expense.vendor_name ??
-                              expense.expense_type.replaceAll("_", " ")}
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            {nest.name}
                           </p>
                         </td>
-
+                        <td className="px-5 py-4 font-semibold text-slate-800">
+                          {money(allocated, data.currencyCode)}
+                        </td>
+                        <td className="px-5 py-4 font-semibold text-slate-800">
+                          {money(spent, data.currencyCode)}
+                        </td>
+                        <td
+                          className={`px-5 py-4 font-bold ${
+                            remaining < 0
+                              ? "text-rose-700"
+                              : "text-emerald-700"
+                          }`}
+                        >
+                          {money(remaining, data.currencyCode)}
+                        </td>
                         <td className="px-5 py-4">
-                          <p className="text-slate-800">{expense.category}</p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {expense.gl_code}
-                          </p>
+                          <div className="flex items-center gap-2">
+                            <div className="h-2.5 w-28 overflow-hidden rounded-full bg-slate-100">
+                              <div
+                                className={`h-full rounded-full transition-all ${
+                                  usage > 100
+                                    ? "bg-rose-500"
+                                    : usage >= 80
+                                      ? "bg-amber-500"
+                                      : "bg-violet-600"
+                                }`}
+                                style={{
+                                  width: `${Math.min(100, Math.max(0, usage))}%`,
+                                }}
+                              />
+                            </div>
+                            <span
+                              className={`text-xs font-bold ${
+                                usage > 100
+                                  ? "text-rose-700"
+                                  : "text-slate-600"
+                              }`}
+                            >
+                              {usage.toFixed(0)}%
+                            </span>
+                          </div>
                         </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
 
-                        <td className="px-5 py-4 text-slate-600">
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex flex-col justify-between gap-2 border-b border-slate-100 px-5 py-5 sm:flex-row sm:items-end sm:px-6">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-violet-700">
+                  Audit history
+                </p>
+                <h2 className="mt-1 text-xl font-bold text-slate-950">
+                  Expense log
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Saved expenses remain listed here for finance analysis.
+                </p>
+              </div>
+              <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-700">
+                {data.entries.length}{" "}
+                {data.entries.length === 1 ? "entry" : "entries"}
+              </span>
+            </div>
+
+            {data.entries.length === 0 ? (
+              <div className="px-6 py-12 text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-500">
+                  <MetricIcon type="spent" />
+                </div>
+                <h3 className="mt-3 font-bold text-slate-900">
+                  No expenses recorded yet
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Saved expenses for this quarter will appear here.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[900px] text-left text-sm">
+                  <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-5 py-3.5">Date</th>
+                      <th className="px-5 py-3.5">Nest</th>
+                      <th className="px-5 py-3.5">Expense item</th>
+                      <th className="px-5 py-3.5">Vendor</th>
+                      <th className="px-5 py-3.5">Cost</th>
+                      <th className="px-5 py-3.5">Activity / comment</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.entries.map((entry) => (
+                      <tr
+                        key={entry.expense_id}
+                        className="border-t border-slate-100 align-top transition hover:bg-slate-50"
+                      >
+                        <td className="whitespace-nowrap px-5 py-4 text-slate-600">
+                          {new Date(entry.created_at).toLocaleDateString()}
+                        </td>
+                        <td className="px-5 py-4 font-semibold text-slate-800">
                           {data.nests.find(
-                            (nest) => Number(nest.id) === expense.nest_id,
-                          )?.code ?? "Country"}
+                            (nest) => Number(nest.id) === entry.nest_id,
+                          )?.code ?? "Nest"}
                         </td>
-
-                        <td className="px-5 py-4 font-medium text-slate-900">
-                          {money(
-                            toNumber(expense.requested_amount),
-                            data.currencyCode,
-                          )}
-                        </td>
-
-                        <td className="px-5 py-4 text-slate-700">
-                          {expense.approved_amount === null
-                            ? "—"
-                            : money(
-                                toNumber(expense.approved_amount),
-                                data.currencyCode,
-                              )}
-                        </td>
-
                         <td className="px-5 py-4">
-                          <span className="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-800">
-                            {statusLabel(expense.status)}
-                          </span>
-                          {expense.review_note && (
-                            <p className="mt-1 max-w-48 text-xs text-slate-500">
-                              {expense.review_note}
-                            </p>
-                          )}
+                          <p className="font-bold text-slate-900">
+                            {entry.item_name_snapshot}
+                          </p>
+                          <p className="mt-1 text-xs font-medium text-slate-500">
+                            Code: {entry.item_code_snapshot}
+                          </p>
                         </td>
-
-                        <td className="px-5 py-4">
-                          {canManage &&
-                            activeCycle.status === "open" &&
-                            expense.status === "draft" && (
-                              <button
-                                type="button"
-                                disabled={saving}
-                                onClick={() =>
-                                  void postAction({
-                                    action: "submit_request",
-                                    cycleId,
-                                    expenseId: expense.expense_id,
-                                  })
-                                }
-                                className="rounded-lg border border-violet-200 px-3 py-1.5 text-xs font-semibold text-violet-800 hover:bg-violet-50 disabled:opacity-50"
-                              >
-                                Submit
-                              </button>
-                            )}
-
-                          {canReview &&
-                            activeCycle.status === "in_review" &&
-                            ["submitted", "in_review"].includes(
-                              expense.status,
-                            ) && (
-                              <div className="flex gap-2">
-                                <button
-                                  type="button"
-                                  disabled={saving}
-                                  onClick={() =>
-                                    void postAction({
-                                      action: "review_request",
-                                      cycleId,
-                                      expenseId: expense.expense_id,
-                                      status: "approved",
-                                      approvedAmount:
-                                        expense.requested_amount,
-                                    })
-                                  }
-                                  className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
-                                >
-                                  Approve
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={saving}
-                                  onClick={() =>
-                                    void postAction({
-                                      action: "review_request",
-                                      cycleId,
-                                      expenseId: expense.expense_id,
-                                      status: "rejected",
-                                    })
-                                  }
-                                  className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
-                                >
-                                  Reject
-                                </button>
-                              </div>
-                            )}
+                        <td className="px-5 py-4 font-medium text-slate-800">
+                          {entry.vendor_name_snapshot}
+                        </td>
+                        <td className="whitespace-nowrap px-5 py-4 font-extrabold text-slate-950">
+                          {money(amount(entry.amount), data.currencyCode)}
+                        </td>
+                        <td className="max-w-xs px-5 py-4 text-slate-600">
+                          {entry.comment || "—"}
                         </td>
                       </tr>
                     ))}
@@ -1117,6 +1297,6 @@ export function QuarterlyExpenseWorkspace({ mode = "planning" }: Props) {
           </section>
         </>
       )}
-    </div>
+    </main>
   );
 }
