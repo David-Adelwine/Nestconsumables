@@ -382,6 +382,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ request: data }, { status: 201 });
     }
 
+    if (action === "submit_request") {
+      const expenseId = String(body.expenseId ?? "");
+      if (!expenseId) {
+        return NextResponse.json({ error: "Choose an expense request to submit." }, { status: 400 });
+      }
+      const { data, error } = await supabase
+        .from("app_expense_requests")
+        .update({ status: "submitted", updated_at: new Date().toISOString() })
+        .eq("expense_id", expenseId)
+        .eq("cycle_id", cycleId)
+        .eq("status", "draft")
+        .select("expense_id, status, updated_at")
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!data) {
+        return NextResponse.json({ error: "Only draft requests can be submitted." }, { status: 409 });
+      }
+      return NextResponse.json({ request: data });
+    }
+
     if (action === "review_request") {
       if (!canReviewExpenses(user)) {
         return NextResponse.json({ error: "You do not have permission to review expenses." }, { status: 403 });
