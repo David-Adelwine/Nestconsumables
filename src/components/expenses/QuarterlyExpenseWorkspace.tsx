@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 type Cycle = {
   cycle_id: string;
@@ -122,13 +122,15 @@ export function QuarterlyExpenseWorkspace({ mode = "planning" }: Props) {
     note: "",
   });
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (selection?: { country?: string; cycleId?: string }) => {
     setLoading(true);
     setError("");
     try {
+      const selectedCountry = selection?.country ?? country;
+      const selectedCycleId = selection?.cycleId ?? cycleId;
       const params = new URLSearchParams();
-      if (country) params.set("country", country);
-      if (cycleId) params.set("cycleId", cycleId);
+      if (selectedCountry) params.set("country", selectedCountry);
+      if (selectedCycleId) params.set("cycleId", selectedCycleId);
       const response = await fetch(`/api/expenses/quarterly?${params.toString()}`, {
         cache: "no-store",
       });
@@ -218,8 +220,12 @@ export function QuarterlyExpenseWorkspace({ mode = "planning" }: Props) {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Could not save the expense data.");
       setMessage("Saved.");
-      if (result.cycle?.cycle_id) setCycleId(result.cycle.cycle_id);
-      await load();
+      if (result.cycle?.cycle_id) {
+        setCycleId(result.cycle.cycle_id);
+        await load({ country: result.cycle.country, cycleId: result.cycle.cycle_id });
+      } else {
+        await load();
+      }
       return true;
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Could not save the expense data.");
