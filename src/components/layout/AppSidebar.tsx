@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 type NavigationIconName =
   | "dashboard"
   | "finance"
+  | "expenses"
   | "lead"
   | "procurement"
   | "quartermaster";
@@ -25,6 +26,11 @@ const navigationItems: {
     label: "Finance",
     href: "/finance/dashboard",
     icon: "finance",
+  },
+  {
+    label: "Expense planning",
+    href: "/expenses/dashboard",
+    icon: "expenses",
   },
   {
     label: "Nest Lead",
@@ -57,6 +63,12 @@ function NavigationIcon({ name }: { name: NavigationIconName }) {
       <>
         <path d="M12 3.5v17" />
         <path d="M16.5 7.5c0-1.7-1.9-3-4.5-3s-4.5 1.3-4.5 3 1.8 2.8 4.5 3.2 4.5 1.4 4.5 3.2-1.9 3.1-4.5 3.1-4.5-1.3-4.5-3.1" />
+      </>
+    ),
+    expenses: (
+      <>
+        <path d="M6 3.5h12v17l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5-2 1.5v-17Z" />
+        <path d="M9 8h6M9 12h6M9 16h3" />
       </>
     ),
     lead: (
@@ -189,9 +201,7 @@ export function AppSidebar() {
               aria-current={isActive ? "page" : undefined}
               title={isCollapsed ? item.label : undefined}
               className={`group relative flex min-h-11 items-center rounded-xl text-sm font-semibold transition ${
-                isCollapsed
-                  ? "justify-center px-2"
-                  : "gap-3 px-3"
+                isCollapsed ? "justify-center px-2" : "gap-3 px-3"
               } ${
                 isActive
                   ? "bg-violet-50 text-violet-900 ring-1 ring-inset ring-violet-200/80"
