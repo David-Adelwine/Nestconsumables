@@ -316,7 +316,7 @@ export function QuarterlyExpenseWorkspace({
   const requestUrl = useMemo(() => {
     const params = new URLSearchParams();
     if (country) params.set("country", country);
-    if (cycleId) params.set("cycle_id", cycleId);
+    if (cycleId) params.set("cycleId", cycleId);
     const query = params.toString();
     return `/api/expenses/quarterly${query ? `?${query}` : ""}`;
   }, [country, cycleId]);
@@ -372,7 +372,7 @@ export function QuarterlyExpenseWorkspace({
         body: JSON.stringify({
           action,
           country,
-          cycle_id: cycleId || selectedCycle?.cycle_id || null,
+          cycleId: cycleId || selectedCycle?.cycle_id || null,
           ...values,
         }),
       });
@@ -621,7 +621,7 @@ export function QuarterlyExpenseWorkspace({
           </select>
         </Field>
 
-        <Field label="Quarter">
+        <Field label="View quarter">
           <select
             className={selectClass}
             value={cycleId}
@@ -670,16 +670,16 @@ export function QuarterlyExpenseWorkspace({
                 />
               </Field>
 
-              <Field label="Quarter">
+              <Field label="New quarter">
                 <select
                   className={selectClass}
                   name="quarter"
-                  defaultValue="Q1"
+                  defaultValue="1"
                 >
-                  <option>Q1</option>
-                  <option>Q2</option>
-                  <option>Q3</option>
-                  <option>Q4</option>
+                  <option value="1">Q1</option>
+                  <option value="2">Q2</option>
+                  <option value="3">Q3</option>
+                  <option value="4">Q4</option>
                 </select>
               </Field>
 
@@ -1136,15 +1136,25 @@ export function QuarterlyExpenseWorkspace({
                     );
 
                     const quoteDrafts = [1, 2, 3]
-                      .map((index) => ({
-                        vendor_name: values.get(`quote_vendor_${index}`),
-                        unit_cost: Number(
+                      .map((index) => {
+                        const quoteVendorId = String(
+                          values.get(`quote_vendor_${index}`) || "",
+                        );
+                        const quoteUnitCost = Number(
                           values.get(`quote_cost_${index}`) || 0,
-                        ),
-                        note: values.get(`quote_note_${index}`),
-                      }))
+                        );
+
+                        return {
+                          vendorId: quoteVendorId,
+                          unitCost: quoteUnitCost,
+                          totalCost: quoteUnitCost * quantity,
+                          note: String(
+                            values.get(`quote_note_${index}`) || "",
+                          ),
+                        };
+                      })
                       .filter(
-                        (quote) => quote.vendor_name && quote.unit_cost > 0,
+                        (quote) => quote.vendorId && quote.unitCost > 0,
                       );
 
                     return {
@@ -1213,12 +1223,13 @@ export function QuarterlyExpenseWorkspace({
 
                 <Field
                   label="Catalog item"
-                  hint="Optional. Select an item to fill its code and category."
+                  hint="Choose the country catalog item for this expense."
                 >
                   <select
                     className={selectClass}
                     name="item_id"
                     defaultValue=""
+                    required
                   >
                     <option value="">Choose an item</option>
                     {data.items.map((item, index) => (
@@ -1238,8 +1249,9 @@ export function QuarterlyExpenseWorkspace({
                     className={selectClass}
                     name="vendor_id"
                     defaultValue=""
+                    required
                   >
-                    <option value="">Select vendor or enter one below</option>
+                    <option value="">Select a vendor from this country</option>
                     {data.vendors.map((vendor, index) => (
                       <option
                         key={`vendor-${String(vendor.vendor_id ?? "unknown")}-${index}`}
@@ -1251,15 +1263,10 @@ export function QuarterlyExpenseWorkspace({
                   </select>
                 </Field>
 
-                <Field
-                  label="Vendor name"
-                  hint="Use this if the vendor is not yet in the country list."
-                >
-                  <input
-                    className={inputClass}
-                    name="vendor_name"
-                    placeholder="Vendor name"
-                  />
+                <Field label="Vendor not listed?">
+                  <div className="flex min-h-11 items-center rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm leading-5 text-slate-600">
+                    Add the vendor in Country catalogs, then select it here.
+                  </div>
                 </Field>
 
                 <Field label="Activity / description">
@@ -1418,11 +1425,21 @@ export function QuarterlyExpenseWorkspace({
                           <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
                             Quote {index}
                           </p>
-                          <input
-                            className={inputClass}
+                          <select
+                            className={selectClass}
                             name={`quote_vendor_${index}`}
-                            placeholder="Vendor"
-                          />
+                            defaultValue=""
+                          >
+                            <option value="">Choose vendor</option>
+                            {data.vendors.map((vendor, vendorIndex) => (
+                              <option
+                                key={`quote-vendor-${String(vendor.vendor_id ?? "unknown")}-${vendorIndex}`}
+                                value={String(vendor.vendor_id ?? "")}
+                              >
+                                {vendor.vendor_name}
+                              </option>
+                            ))}
+                          </select>
                           <input
                             className={inputClass}
                             name={`quote_cost_${index}`}

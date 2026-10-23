@@ -96,6 +96,36 @@ function fail(error: unknown, fallback: string) {
   );
 }
 
+function camelizeRequestKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(camelizeRequestKeys);
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+        key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase()),
+        camelizeRequestKeys(entry),
+      ]),
+    );
+  }
+
+  return value;
+}
+
+function normalizeRequestBody(value: unknown): Record<string, unknown> {
+  const normalized = camelizeRequestKeys(value);
+  if (!normalized || typeof normalized !== "object" || Array.isArray(normalized)) {
+    return {};
+  }
+
+  const body = normalized as Record<string, unknown>;
+  const quarter = String(body.quarter ?? "").trim();
+  const quarterMatch = quarter.match(/^Q([1-4])$/i);
+
+  if (quarterMatch) body.quarter = Number(quarterMatch[1]);
+
+  return body;
+}
+
 async function accessibleNests(
   supabase: Supabase,
   user: AppUser,
@@ -474,7 +504,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = (await request.json()) as Record<string, unknown>;
+    const body = normalizeRequestBody(await request.json());
     const action = String(body.action ?? "");
     const supabase = await createClient();
     const now = new Date().toISOString();
