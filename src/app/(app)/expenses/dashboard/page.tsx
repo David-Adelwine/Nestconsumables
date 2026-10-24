@@ -1,5 +1,13 @@
 import { QuarterlyExpenseWorkspace } from "@/components/expenses/QuarterlyExpenseWorkspace";
 
-export default function ExpensePlanningPage() {
-  return <QuarterlyExpenseWorkspace mode="planning" />;
+type ExpensePlanningPageProps = {
+  searchParams: Promise<{ country?: string }>;
+};
+
+export default async function ExpensePlanningPage({
+  searchParams,
+}: ExpensePlanningPageProps) {
+  const { country = "" } = await searchParams;
+
+  return <QuarterlyExpenseWorkspace mode="planning" initialCountry={country} />;
 }

@@ -1,9 +1,11 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 type WorkspaceMode = "planning" | "finance";
-type TabName = "overview" | "entries" | "budgets" | "fuel" | "catalog";
+type TabName = "overview" | "plan" | "entries" | "budgets" | "fuel" | "catalog";
 type Row = Record<string, any>;
 
 type WorkspaceData = {
@@ -15,6 +17,8 @@ type WorkspaceData = {
   selectedCycle: Row | null;
   allocations: Row[];
   budgetLines: Row[];
+  planLines: Row[];
+  planLineQuotes: Row[];
   entries: Row[];
   historyEntries: Row[];
   historyAllocations: Row[];
@@ -41,6 +45,8 @@ const EMPTY_DATA: WorkspaceData = {
   selectedCycle: null,
   allocations: [],
   budgetLines: [],
+  planLines: [],
+  planLineQuotes: [],
   entries: [],
   historyEntries: [],
   historyAllocations: [],
@@ -57,6 +63,7 @@ const EMPTY_DATA: WorkspaceData = {
 
 const tabs: { id: TabName; label: string }[] = [
   { id: "overview", label: "Overview" },
+  { id: "plan", label: "Quarter plan" },
   { id: "entries", label: "Activities & expenses" },
   { id: "budgets", label: "Budget lines" },
   { id: "fuel", label: "Fuel" },
@@ -292,17 +299,25 @@ function Td({
 
 export function QuarterlyExpenseWorkspace({
   mode = "planning",
+  initialCycleId = "",
+  initialCountry = "",
+  workspaceOnly = false,
 }: {
   mode?: WorkspaceMode;
+  initialCycleId?: string;
+  initialCountry?: string;
+  workspaceOnly?: boolean;
 }) {
+  const router = useRouter();
   const [data, setData] = useState<WorkspaceData>(EMPTY_DATA);
-  const [country, setCountry] = useState("");
-  const [cycleId, setCycleId] = useState("");
+  const [country, setCountry] = useState(initialCountry);
+  const [cycleId, setCycleId] = useState(initialCycleId);
   const [activeTab, setActiveTab] = useState<TabName>("overview");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [planLineDraft, setPlanLineDraft] = useState<Row | null>(null);
 
   const isFinance = mode === "finance";
   const canManage = Boolean(data.permissions.canManageCountry);
@@ -312,14 +327,30 @@ export function QuarterlyExpenseWorkspace({
     data.cycles.find((cycle) => String(cycle.cycle_id) === cycleId) ??
     data.selectedCycle ??
     null;
+  const quarterGroups = useMemo(() => {
+    const groups = new Map<string, Row[]>();
+    for (const cycle of data.cycles) {
+      const year = String(cycle.fiscal_year ?? "Other");
+      groups.set(year, [...(groups.get(year) ?? []), cycle]);
+    }
+    return [...groups.entries()].sort(
+      ([yearA], [yearB]) => Number(yearB) - Number(yearA),
+    );
+  }, [data.cycles]);
+  const canEditCycle = selectedCycle?.status === "open";
+  const canEditPlanLine = (line: Row) =>
+    canManage ||
+    (line.nest_id != null &&
+      canRecordNestIds.includes(String(line.nest_id)));
 
   const requestUrl = useMemo(() => {
     const params = new URLSearchParams();
     if (country) params.set("country", country);
     if (cycleId) params.set("cycleId", cycleId);
+    if (mode === "planning" && !workspaceOnly) params.set("directory", "1");
     const query = params.toString();
     return `/api/expenses/quarterly${query ? `?${query}` : ""}`;
-  }, [country, cycleId]);
+  }, [country, cycleId, mode, workspaceOnly]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -338,7 +369,11 @@ export function QuarterlyExpenseWorkspace({
 
       if (!country && next.country) setCountry(next.country);
 
-      if (!cycleId && next.selectedCycle?.cycle_id) {
+      if (
+        !cycleId &&
+        next.selectedCycle?.cycle_id &&
+        (workspaceOnly || mode === "finance")
+      ) {
         setCycleId(String(next.selectedCycle.cycle_id));
       }
     } catch (error) {
@@ -350,7 +385,7 @@ export function QuarterlyExpenseWorkspace({
     } finally {
       setLoading(false);
     }
-  }, [requestUrl, country, cycleId]);
+  }, [requestUrl, country, cycleId, mode, workspaceOnly]);
 
   useEffect(() => {
     void loadData();
@@ -361,6 +396,28 @@ export function QuarterlyExpenseWorkspace({
     values: Record<string, unknown>,
     options?: { quiet?: boolean },
   ) {
+    const editableActions = new Set([
+      "save_fx_rate",
+      "save_allocation",
+      "save_allocations",
+      "save_budget_line",
+      "save_plan_line",
+      "delete_plan_line",
+      "add_expense",
+      "add_fuel_asset",
+      "save_fuel_plan",
+      "record_fuel_actual",
+    ]);
+
+    if (editableActions.has(action) && selectedCycle?.status !== "open") {
+      setErrorMessage("This quarter is view-only. Open quarters can be edited.");
+      return null;
+    }
+    if (action === "review_expense" && selectedCycle?.status !== "in_review") {
+      setErrorMessage("Expense reviews are available while the quarter is in review.");
+      return null;
+    }
+
     setSaving(true);
     setErrorMessage("");
     if (!options?.quiet) setSuccessMessage("");
@@ -411,7 +468,22 @@ export function QuarterlyExpenseWorkspace({
 
       if (result) {
         form.reset();
-        setSuccessMessage(success);
+
+        if (action === "create_cycle" && result.cycle?.cycle_id) {
+          const newCycleId = String(result.cycle.cycle_id);
+          const seeded = result.cycle.seeded ?? {};
+          const seededTotal = [
+            seeded.allocations,
+            seeded.plan_lines,
+            seeded.budget_lines,
+            seeded.fuel_plans,
+          ].reduce((sum: number, value: unknown) => sum + numberValue(value), 0);
+          setSuccessMessage(`Quarter workspace created with ${seededTotal} starter rows. Opening it now…`);
+          router.push(`/expenses/quarterly/${encodeURIComponent(newCycleId)}`);
+        } else {
+          if (action === "save_plan_line") setPlanLineDraft(null);
+          setSuccessMessage(success);
+        }
       }
     };
   }
@@ -479,6 +551,13 @@ export function QuarterlyExpenseWorkspace({
     return currentBudgetLines.map((line): BudgetVarianceRow => {
       const spent = cycleEntries
         .filter((entry) => {
+          if (
+            line.nest_id !== null &&
+            line.nest_id !== undefined &&
+            String(line.nest_id) !== String(entry.nest_id)
+          ) {
+            return false;
+          }
           if (line.gl_code && entry.gl_code) {
             return String(line.gl_code) === String(entry.gl_code);
           }
@@ -521,6 +600,74 @@ export function QuarterlyExpenseWorkspace({
     return nest ? getNestLabel(nest) : text(nestId);
   }
 
+  function quarterBrowser() {
+    return (
+      <details className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 font-bold text-slate-900 marker:hidden">
+          <span>Browse available quarters</span>
+          <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-bold text-violet-800">
+            {data.cycles.length} {data.cycles.length === 1 ? "quarter" : "quarters"}
+          </span>
+        </summary>
+        <div className="border-t border-slate-100 p-4">
+          {quarterGroups.length ? (
+            <div className="space-y-3">
+              {quarterGroups.map(([year, cycles]) => (
+                <details
+                  key={`quarter-year-${year}`}
+                  className="overflow-hidden rounded-xl border border-slate-200"
+                >
+                  <summary className="flex cursor-pointer list-none items-center justify-between bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 marker:hidden">
+                    <span>Fiscal year {year}</span>
+                    <span className="text-xs font-semibold text-slate-500">
+                      {cycles.length} {cycles.length === 1 ? "quarter" : "quarters"}
+                    </span>
+                  </summary>
+                  <div className="grid gap-2 p-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {cycles.map((cycle) => {
+                      const isCurrent = String(cycle.cycle_id) === cycleId;
+                      return (
+                        <Link
+                          key={`quarter-link-${String(cycle.cycle_id)}`}
+                          href={`/expenses/quarterly/${encodeURIComponent(String(cycle.cycle_id))}`}
+                          className={cx(
+                            "flex items-center justify-between gap-3 rounded-xl border px-4 py-3 transition",
+                            isCurrent
+                              ? "border-violet-300 bg-violet-50 ring-1 ring-violet-200"
+                              : "border-slate-200 bg-white hover:border-violet-200 hover:bg-violet-50/60",
+                          )}
+                        >
+                          <span>
+                            <span className="block font-bold text-slate-900">
+                              Q{cycle.quarter} {isCurrent ? "· Current view" : ""}
+                            </span>
+                            <span className="mt-1 block text-xs text-slate-500">
+                              Open to view this quarter’s plan and activity
+                            </span>
+                          </span>
+                          <span className="flex shrink-0 flex-col items-end gap-2">
+                            <StatusPill status={cycle.status} />
+                            <span className="text-xs font-bold text-violet-800">Open →</span>
+                          </span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </details>
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-xl bg-slate-50 px-4 py-5 text-sm text-slate-600">
+              {country
+                ? `No quarters have been created for ${country} yet.`
+                : "Choose a country above to see its available quarters."}
+            </p>
+          )}
+        </div>
+      </details>
+    );
+  }
+
   function refreshButton() {
     return (
       <button
@@ -544,6 +691,150 @@ export function QuarterlyExpenseWorkspace({
     );
   }
 
+  if (!workspaceOnly && mode === "planning") {
+    return (
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <header className="mb-7 overflow-hidden rounded-3xl bg-gradient-to-br from-violet-950 via-violet-900 to-indigo-900 p-6 text-white shadow-xl shadow-violet-950/10 sm:p-8">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-violet-200">
+            Expense planning
+          </p>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">
+            Quarterly workspaces
+          </h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-violet-100 sm:text-base">
+            Create a quarter or open one you’re authorized to view. Each quarter
+            has its own shared plan, activity log, budgets, and fuel requests.
+          </p>
+        </header>
+
+        {(errorMessage || successMessage) && (
+          <div
+            role={errorMessage ? "alert" : "status"}
+            className={cx(
+              "mb-5 rounded-xl border px-4 py-3 text-sm font-medium",
+              errorMessage
+                ? "border-rose-200 bg-rose-50 text-rose-800"
+                : "border-emerald-200 bg-emerald-50 text-emerald-800",
+            )}
+          >
+            {errorMessage || successMessage}
+          </div>
+        )}
+
+        <section className="mb-5 flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="w-full sm:max-w-sm">
+            <Field label="Country workspace">
+              <select
+                className={selectClass}
+                value={country}
+                onChange={(event) => {
+                  const nextCountry = event.target.value;
+                  setCountry(nextCountry);
+                  setCycleId("");
+                  router.replace(
+                    nextCountry
+                      ? `/expenses/dashboard?country=${encodeURIComponent(nextCountry)}`
+                      : "/expenses/dashboard",
+                  );
+                }}
+              >
+                <option value="">Select a country</option>
+                {data.countries.map((item, index) => {
+                  const value = getCountryValue(item);
+                  if (value === null || value === "") return null;
+                  return (
+                    <option
+                      key={`country-${String(value)}-${index}`}
+                      value={String(value)}
+                    >
+                      {getCountryLabel(item, String(value))}
+                    </option>
+                  );
+                })}
+              </select>
+            </Field>
+          </div>
+          {refreshButton()}
+        </section>
+
+        {canManage && (
+          <section className="mb-5 rounded-2xl border border-violet-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="mb-4">
+              <h2 className="text-lg font-bold text-slate-950">Create a quarter</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Creating it prepares the shared workspace and opens it for your team.
+              </p>
+            </div>
+            <form
+              className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+              onSubmit={handleForm(
+                "create_cycle",
+                (form) => {
+                  const values = new FormData(form);
+                  return {
+                    fiscal_year: Number(values.get("fiscal_year")),
+                    quarter: values.get("quarter"),
+                    currency_code: values.get("currency_code"),
+                    source_cycle_id: values.get("source_cycle_id") || null,
+                  };
+                },
+                "Quarter created.",
+              )}
+            >
+              <Field label="Fiscal year">
+                <input
+                  className={inputClass}
+                  name="fiscal_year"
+                  type="number"
+                  min="2020"
+                  max="2100"
+                  defaultValue={new Date().getFullYear()}
+                  required
+                />
+              </Field>
+              <Field label="Quarter">
+                <select className={selectClass} name="quarter" defaultValue="1">
+                  <option value="1">Q1</option>
+                  <option value="2">Q2</option>
+                  <option value="3">Q3</option>
+                  <option value="4">Q4</option>
+                </select>
+              </Field>
+              <Field label="Copy plan from (optional)">
+                <select className={selectClass} name="source_cycle_id" defaultValue="">
+                  <option value="">Use the country template</option>
+                  {data.cycles.map((cycle) => (
+                    <option key={`source-${cycle.cycle_id}`} value={String(cycle.cycle_id)}>
+                      {cycle.fiscal_year} · Q{cycle.quarter} · {statusLabel(cycle.status)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <div className="flex items-end">
+                <button
+                  type="submit"
+                  className={buttonPrimary}
+                  disabled={saving || !country}
+                >
+                  Create and open workspace
+                </button>
+              </div>
+              <input type="hidden" name="currency_code" value={data.currencyCode || ""} />
+            </form>
+          </section>
+        )}
+
+        <section className="mb-3">
+          <h2 className="mb-1 text-xl font-bold text-slate-950">Past and current quarters</h2>
+          <p className="mb-4 text-sm text-slate-600">
+            Quarters are grouped by year and collapsed until you choose one. Open quarters allow edits; completed quarters remain available to review.
+          </p>
+          {quarterBrowser()}
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       <div className="mb-7 overflow-hidden rounded-3xl bg-gradient-to-br from-violet-950 via-violet-900 to-indigo-900 p-6 text-white shadow-xl shadow-violet-950/10 sm:p-8">
@@ -553,7 +844,7 @@ export function QuarterlyExpenseWorkspace({
               {isFinance ? "Finance workspace" : "Nest expense workspace"}
             </p>
             <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">
-              Quarterly expense planning
+              {workspaceOnly ? "Quarter expense workspace" : "Quarterly expense planning"}
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-violet-100 sm:text-base">
               Plan quarterly allocations, record activities and vendor costs,
@@ -563,7 +854,7 @@ export function QuarterlyExpenseWorkspace({
 
           <div className="min-w-52 rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur">
             <p className="text-xs font-semibold uppercase tracking-wide text-violet-200">
-              Current quarter
+              Selected quarter
             </p>
             <p className="mt-1 text-lg font-bold">
               {selectedCycle
@@ -579,6 +870,12 @@ export function QuarterlyExpenseWorkspace({
         </div>
       </div>
 
+      {selectedCycle && selectedCycle.status !== "open" && (
+        <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          This quarter is <strong>{statusLabel(selectedCycle.status)}</strong> and is view-only. Select an open quarter to edit its plan or activities.
+        </div>
+      )}
+
       {(errorMessage || successMessage) && (
         <div
           role={errorMessage ? "alert" : "status"}
@@ -593,6 +890,26 @@ export function QuarterlyExpenseWorkspace({
         </div>
       )}
 
+      {workspaceOnly && (
+        <div className="mb-5 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Link
+              href={`/expenses/dashboard?country=${encodeURIComponent(country)}`}
+              className={buttonSecondary}
+            >
+              ← Quarter list and creation
+            </Link>
+            {selectedCycle && (
+              <p className="text-sm font-semibold text-slate-600">
+                {country} · {selectedCycle.fiscal_year} · Q{selectedCycle.quarter}
+              </p>
+            )}
+          </div>
+          {quarterBrowser()}
+        </div>
+      )}
+
+      {!workspaceOnly && (
       <section className="mb-6 grid gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4">
         <Field label="Country">
           <select
@@ -643,7 +960,7 @@ export function QuarterlyExpenseWorkspace({
         <div className="flex items-end">
           {canManage && (
             <form
-              className="grid w-full grid-cols-[1fr_1fr_auto] gap-2"
+              className="grid w-full grid-cols-1 gap-2 sm:grid-cols-4"
               onSubmit={handleForm(
                 "create_cycle",
                 (form) => {
@@ -683,12 +1000,30 @@ export function QuarterlyExpenseWorkspace({
                 </select>
               </Field>
 
+              <Field label="Copy plan from">
+                <select
+                  className={selectClass}
+                  name="source_cycle_id"
+                  defaultValue=""
+                >
+                  <option value="">Start without a copied plan</option>
+                  {data.cycles.map((cycle, index) => (
+                    <option
+                      key={`source-cycle-${String(cycle.cycle_id ?? "unknown")}-${index}`}
+                      value={String(cycle.cycle_id ?? "")}
+                    >
+                      {cycle.fiscal_year} · Q{cycle.quarter} · {statusLabel(cycle.status)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
               <div className="flex items-end">
                 <button
                   className={buttonPrimary}
                   disabled={saving || !country}
                 >
-                  Create
+                  Create &amp; open
                 </button>
               </div>
 
@@ -703,6 +1038,18 @@ export function QuarterlyExpenseWorkspace({
 
         <div className="flex items-end justify-end">{refreshButton()}</div>
       </section>
+      )}
+
+      {!workspaceOnly && selectedCycle && (
+        <div className="mb-5 flex justify-end">
+          <Link
+            href={`/expenses/quarterly/${encodeURIComponent(String(selectedCycle.cycle_id))}`}
+            className={buttonPrimary}
+          >
+            Open quarter workspace →
+          </Link>
+        </div>
+      )}
 
       <nav
         aria-label="Expense workspace sections"
@@ -839,31 +1186,33 @@ export function QuarterlyExpenseWorkspace({
               <SectionHeading
                 eyebrow="Quarter workflow"
                 title="Review and close the quarter"
-                description="Move the quarter through planning, review, approval, and close."
+                description="Open quarters are editable. Sending a quarter for review locks its plan until review is complete."
               />
 
               <div className="flex flex-wrap items-center gap-3">
                 <StatusPill status={selectedCycle.status} />
                 {(
                   [
-                    ["open", "Open for planning"],
-                    ["in_review", "Send for review"],
-                    ["approved", "Approve quarter"],
-                    ["closed", "Close quarter"],
+                    ["draft", "open", "Open for planning"],
+                    ["open", "in_review", "Send for review"],
+                    ["in_review", "approved", "Approve quarter"],
+                    ["approved", "closed", "Close quarter"],
                   ] as const
-                ).map(([status, label]) => (
-                  <button
-                    type="button"
-                    key={status}
-                    className={buttonSecondary}
-                    disabled={saving || selectedCycle.status === status}
-                    onClick={() =>
-                      void submitAction("set_cycle_status", { status })
-                    }
-                  >
-                    {label}
-                  </button>
-                ))}
+                )
+                  .filter(([current]) => current === selectedCycle.status)
+                  .map(([, nextStatus, label]) => (
+                    <button
+                      type="button"
+                      key={nextStatus}
+                      className={buttonSecondary}
+                      disabled={saving}
+                      onClick={() =>
+                        void submitAction("set_cycle_status", { status: nextStatus })
+                      }
+                    >
+                      {label}
+                    </button>
+                  ))}
               </div>
             </section>
           )}
@@ -1098,6 +1447,225 @@ export function QuarterlyExpenseWorkspace({
               </section>
             </>
           )}
+        </div>
+      )}
+
+      {activeTab === "plan" && (
+        <div className="space-y-6">
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <SectionHeading
+              eyebrow="Quarter plan"
+              title={planLineDraft ? "Edit plan line" : "Add a plan line"}
+              description="Capture the spreadsheet row before it becomes an expense activity. Vendor and cost may stay blank until the nest confirms them."
+              action={planLineDraft ? (
+                <button
+                  type="button"
+                  className={buttonSecondary}
+                  onClick={() => setPlanLineDraft(null)}
+                >
+                  Cancel edit
+                </button>
+              ) : undefined}
+            />
+
+            {!selectedCycle ? (
+              <EmptyState>Select a quarter to work with its plan.</EmptyState>
+            ) : !canEditCycle ? (
+              <EmptyState>This quarter is view-only. Select an open quarter to edit plan lines.</EmptyState>
+            ) : (
+              <form
+                key={String(planLineDraft?.plan_line_id ?? "new-plan-line")}
+                className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+                onSubmit={handleForm(
+                  "save_plan_line",
+                  (form) => {
+                    const values = new FormData(form);
+                    const nestId = String(values.get("nest_id") || "");
+                    return {
+                      plan_line_id: planLineDraft?.plan_line_id ?? null,
+                      scope_type: values.get("scope_type"),
+                      scope_label: values.get("scope_label"),
+                      nest_id: nestId || null,
+                      department: values.get("department"),
+                      team: values.get("team"),
+                      gl_code: values.get("gl_code"),
+                      category: values.get("category"),
+                      expense_type: values.get("expense_type"),
+                      line_type: values.get("line_type"),
+                      item_code: values.get("item_code"),
+                      description: values.get("description"),
+                      unit_measure: values.get("unit_measure"),
+                      planned_quantity: values.get("planned_quantity"),
+                      planned_unit_cost: values.get("planned_unit_cost"),
+                      planned_amount: values.get("planned_amount"),
+                      vendor_id: values.get("vendor_id") || null,
+                      vendor_name_snapshot: values.get("vendor_name_snapshot"),
+                      blanket_po: values.get("blanket_po"),
+                      notes: values.get("notes"),
+                    };
+                  },
+                  "Plan line saved.",
+                )}
+              >
+                <Field label="Scope">
+                  <select
+                    className={selectClass}
+                    name="scope_type"
+                    defaultValue={planLineDraft?.scope_type ?? "nest"}
+                  >
+                    <option value="nest">Nest</option>
+                    {canManage && <option value="country">Country-wide</option>}
+                    {canManage && <option value="hq">HQ</option>}
+                    {canManage && <option value="central">Central</option>}
+                    {canManage && <option value="donor_program">Donor program</option>}
+                    {canManage && <option value="other">Other</option>}
+                  </select>
+                </Field>
+
+                <Field label="Nest">
+                  <select
+                    className={selectClass}
+                    name="nest_id"
+                    defaultValue={String(planLineDraft?.nest_id ?? "")}
+                  >
+                    <option value="">Select nest for nest-scoped line</option>
+                    {data.nests.map((nest, index) => {
+                      const nestId = getNestId(nest);
+                      if (nestId === null) return null;
+                      if (!canManage && !canRecordNestIds.includes(String(nestId))) return null;
+                      return (
+                        <option key={`plan-nest-${String(nestId)}-${index}`} value={String(nestId)}>
+                          {getNestLabel(nest)}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </Field>
+
+                <Field label="Scope label">
+                  <input className={inputClass} name="scope_label" defaultValue={planLineDraft?.scope_label ?? ""} placeholder="Optional country or program label" />
+                </Field>
+                <Field label="Department">
+                  <input className={inputClass} name="department" defaultValue={planLineDraft?.department ?? ""} />
+                </Field>
+                <Field label="Team">
+                  <input className={inputClass} name="team" defaultValue={planLineDraft?.team ?? ""} />
+                </Field>
+                <Field label="GL code">
+                  <select className={selectClass} name="gl_code" defaultValue={planLineDraft?.gl_code ?? ""}>
+                    <option value="">Select GL code</option>
+                    {data.glCodes.map((code, index) => (
+                      <option key={`plan-gl-${String(code.gl_code ?? "unknown")}-${index}`} value={String(code.gl_code)}>
+                        {code.gl_code} · {code.description}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Category">
+                  <input className={inputClass} name="category" defaultValue={planLineDraft?.category ?? ""} />
+                </Field>
+                <Field label="Expense type">
+                  <select className={selectClass} name="expense_type" defaultValue={planLineDraft?.expense_type ?? ""}>
+                    <option value="">Select type</option>
+                    <option value="recurring">Recurring</option>
+                    <option value="one_off">One-off</option>
+                    <option value="service_utility">Service / utility</option>
+                    <option value="fuel">Fuel</option>
+                    <option value="travel">Travel</option>
+                    <option value="other">Other</option>
+                  </select>
+                </Field>
+                <Field label="Plan line type">
+                  <input className={inputClass} name="line_type" defaultValue={planLineDraft?.line_type ?? ""} placeholder="Purchase, NTE Budget, Service…" />
+                </Field>
+                <Field label="Item code">
+                  <input className={inputClass} name="item_code" defaultValue={planLineDraft?.item_code ?? ""} />
+                </Field>
+                <Field label="Description">
+                  <input className={inputClass} name="description" defaultValue={planLineDraft?.description ?? ""} required />
+                </Field>
+                <Field label="Unit">
+                  <input className={inputClass} name="unit_measure" defaultValue={planLineDraft?.unit_measure ?? ""} placeholder="Each, litre, month…" />
+                </Field>
+                <Field label="Planned quantity">
+                  <input className={inputClass} name="planned_quantity" type="number" min="0" step="0.01" defaultValue={planLineDraft?.planned_quantity ?? ""} />
+                </Field>
+                <Field label="Planned unit cost">
+                  <input className={inputClass} name="planned_unit_cost" type="number" min="0" step="0.01" defaultValue={planLineDraft?.planned_unit_cost ?? ""} />
+                </Field>
+                <Field label="Planned total">
+                  <input className={inputClass} name="planned_amount" type="number" min="0" step="0.01" defaultValue={planLineDraft?.planned_amount ?? ""} />
+                </Field>
+                <Field label="Vendor">
+                  <select className={selectClass} name="vendor_id" defaultValue={String(planLineDraft?.vendor_id ?? "")}>
+                    <option value="">Vendor not selected yet</option>
+                    {data.vendors.map((vendor, index) => (
+                      <option key={`plan-vendor-${String(vendor.vendor_id ?? "unknown")}-${index}`} value={String(vendor.vendor_id)}>
+                        {vendor.vendor_name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Vendor name snapshot">
+                  <input className={inputClass} name="vendor_name_snapshot" defaultValue={planLineDraft?.vendor_name_snapshot ?? ""} placeholder="Use when vendor is not in catalog yet" />
+                </Field>
+                <Field label="Blanket PO">
+                  <input className={inputClass} name="blanket_po" defaultValue={planLineDraft?.blanket_po ?? ""} />
+                </Field>
+                <Field label="Notes" className="sm:col-span-2 xl:col-span-3">
+                  <textarea className={`${inputClass} min-h-20`} name="notes" defaultValue={planLineDraft?.notes ?? ""} />
+                </Field>
+                <div className="sm:col-span-2 xl:col-span-3">
+                  <button className={buttonPrimary} disabled={saving || !canEditCycle}>
+                    {planLineDraft ? "Save plan line" : "Add plan line"}
+                  </button>
+                </div>
+              </form>
+            )}
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <SectionHeading
+              eyebrow="Quarter worksheet"
+              title="Plan lines"
+              description="These country and nest planning rows are separate from recorded expense activities. Planned totals help organize the allocation; activities appear in the expense ledger."
+            />
+            {data.planLines.length ? (
+              <TableWrap>
+                <table className="min-w-full border-collapse">
+                  <thead><tr><Th>Scope</Th><Th>Department / GL</Th><Th>Category / type</Th><Th>Description</Th><Th>Qty / unit</Th><Th>Planned total</Th><Th>Vendor / quotes</Th><Th>Notes</Th><Th>Actions</Th></tr></thead>
+                  <tbody>
+                    {data.planLines.map((line, index) => {
+                      const lineQuotes = data.planLineQuotes.filter((quote) => String(quote.plan_line_id) === String(line.plan_line_id));
+                      const vendorName = line.vendor_name_snapshot || data.vendors.find((vendor) => String(vendor.vendor_id) === String(line.vendor_id))?.vendor_name;
+                      return (
+                        <tr key={`plan-line-${String(line.plan_line_id ?? "unknown")}-${index}`}>
+                          <Td>{line.nest_id ? nestName(line.nest_id) : text(line.scope_label, "Country-wide")}</Td>
+                          <Td><p className="font-semibold text-slate-900">{text(line.department)}</p><p className="mt-1 text-xs text-slate-500">{text(line.gl_code)}</p></Td>
+                          <Td><p>{text(line.category)}</p><p className="mt-1 text-xs text-slate-500">{text(line.line_type || line.expense_type)}</p></Td>
+                          <Td><p className="font-semibold text-slate-900">{text(line.description)}</p>{line.item_code && <p className="mt-1 text-xs text-slate-500">{line.item_code}</p>}</Td>
+                          <Td>{line.planned_quantity == null ? "—" : numberValue(line.planned_quantity)} {text(line.unit_measure, "")}</Td>
+                          <Td className="font-bold">{line.planned_amount == null ? "Not entered" : money(line.planned_amount, currency)}</Td>
+                          <Td><p>{text(vendorName, "Not selected")}</p>{lineQuotes.map((quote, quoteIndex) => <p key={`plan-quote-${String(quote.plan_line_quote_id ?? quoteIndex)}`} className="mt-1 text-xs text-slate-500">{quote.vendor_name_snapshot}: {quote.total_cost == null ? "cost pending" : money(quote.total_cost, currency)}</p>)}</Td>
+                          <Td>{text(line.notes)}</Td>
+                          <Td>
+                            {canEditCycle && canEditPlanLine(line) ? (
+                              <div className="flex flex-col gap-2">
+                                <button type="button" className={buttonSecondary} onClick={() => setPlanLineDraft(line)}>Edit</button>
+                                <button type="button" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800 hover:bg-rose-100" disabled={saving} onClick={() => void submitAction("delete_plan_line", { planLineId: line.plan_line_id })}>Remove</button>
+                              </div>
+                            ) : <span className="text-xs text-slate-400">View only</span>}
+                          </Td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </TableWrap>
+            ) : (
+              <EmptyState>No plan lines are loaded for this quarter yet. Import the P1 plan or add rows above.</EmptyState>
+            )}
+          </section>
         </div>
       )}
 
@@ -1557,15 +2125,15 @@ export function QuarterlyExpenseWorkspace({
                                   disabled={saving}
                                   onClick={() =>
                                     void submitAction("review_expense", {
-                                      entry_id: entry.entry_id,
+                                      expenseId: entry.expense_id,
                                       status: "approved",
-                                      actual_amount:
+                                      actualAmount:
                                         (
                                           document.getElementById(
                                             `actual-${entry.entry_id}`,
                                           ) as HTMLInputElement
                                         )?.value || null,
-                                      review_note: (
+                                      reviewNote: (
                                         document.getElementById(
                                           `review-note-${entry.entry_id}`,
                                         ) as HTMLInputElement
@@ -1581,9 +2149,9 @@ export function QuarterlyExpenseWorkspace({
                                   disabled={saving}
                                   onClick={() =>
                                     void submitAction("review_expense", {
-                                      entry_id: entry.entry_id,
+                                      expenseId: entry.expense_id,
                                       status: "rejected",
-                                      review_note: (
+                                      reviewNote: (
                                         document.getElementById(
                                           `review-note-${entry.entry_id}`,
                                         ) as HTMLInputElement
@@ -1641,9 +2209,9 @@ export function QuarterlyExpenseWorkspace({
                         values.get("budget_amount") || 0,
                       ),
                       blanket_po: values.get("blanket_po"),
-                      qty: Number(values.get("qty") || 0),
-                      unit: values.get("unit"),
-                      cost: Number(values.get("cost") || 0),
+                      quantity: Number(values.get("qty") || 0),
+                      unit_measure: values.get("unit"),
+                      unit_cost: Number(values.get("cost") || 0),
                       notes: values.get("notes"),
                     };
                   },
@@ -1658,7 +2226,6 @@ export function QuarterlyExpenseWorkspace({
                   >
                     <option value="nest">Nest</option>
                     <option value="country">Country</option>
-                    <option value="department">Department</option>
                   </select>
                 </Field>
 
@@ -1713,6 +2280,7 @@ export function QuarterlyExpenseWorkspace({
                   <select
                     className={selectClass}
                     name="gl_code"
+                    required
                     defaultValue=""
                   >
                     <option value="">Select GL code</option>
@@ -1732,6 +2300,7 @@ export function QuarterlyExpenseWorkspace({
                     className={inputClass}
                     name="category"
                     placeholder="Category"
+                    required
                   />
                 </Field>
 
@@ -1898,22 +2467,26 @@ export function QuarterlyExpenseWorkspace({
                     const values = new FormData(form);
 
                     return {
-                      asset_name: values.get("asset_name"),
+                      identifier: values.get("identifier"),
                       asset_type: values.get("asset_type"),
                       nest_id: values.get("nest_id") || null,
-                      license_plate: values.get("license_plate"),
+                      model: values.get("model"),
                       purpose: values.get("purpose"),
-                      status: values.get("status"),
+                      fuel_type: values.get("fuel_type"),
+                      vendor_name: values.get("vendor_name"),
+                      consumption_rate: Number(values.get("consumption_rate") || 0),
+                      consumption_basis: values.get("consumption_basis"),
+                      notes: values.get("notes"),
                     };
                   },
                   "Fuel asset added.",
                 )}
               >
-                <Field label="Asset name">
+                <Field label="Vehicle plate / asset identifier">
                   <input
                     className={inputClass}
-                    name="asset_name"
-                    placeholder="Vehicle or generator name"
+                    name="identifier"
+                    placeholder="Registration or generator ID"
                     required
                   />
                 </Field>
@@ -1953,11 +2526,11 @@ export function QuarterlyExpenseWorkspace({
                   </select>
                 </Field>
 
-                <Field label="License plate / identifier">
+                <Field label="Make and model">
                   <input
                     className={inputClass}
-                    name="license_plate"
-                    placeholder="Plate number or asset ID"
+                    name="model"
+                    placeholder="Toyota Hiace, 150 kVA generator…"
                   />
                 </Field>
 
@@ -1969,16 +2542,32 @@ export function QuarterlyExpenseWorkspace({
                   />
                 </Field>
 
-                <Field label="Status">
-                  <select
-                    className={selectClass}
-                    name="status"
-                    defaultValue="active"
-                  >
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                    <option value="maintenance">Maintenance</option>
+                <Field label="Fuel type">
+                  <input className={inputClass} name="fuel_type" placeholder="Diesel, petrol, electric…" />
+                </Field>
+
+                <Field label="Default vendor">
+                  <select className={selectClass} name="vendor_name" defaultValue="">
+                    <option value="">Select vendor</option>
+                    {data.vendors.map((vendor, index) => (
+                      <option key={`asset-vendor-${String(vendor.vendor_id)}-${index}`} value={String(vendor.vendor_name)}>{vendor.vendor_name}</option>
+                    ))}
                   </select>
+                </Field>
+
+                <Field label="Consumption rate">
+                  <input className={inputClass} name="consumption_rate" type="number" min="0" step="0.01" defaultValue="0" />
+                </Field>
+
+                <Field label="Rate basis">
+                  <select className={selectClass} name="consumption_basis" defaultValue="per_100km">
+                    <option value="per_100km">Litres per 100 km</option>
+                    <option value="per_hour">Litres per generator hour</option>
+                  </select>
+                </Field>
+
+                <Field label="Notes">
+                  <input className={inputClass} name="notes" placeholder="Fuel card, operational notes…" />
                 </Field>
 
                 <div className="sm:col-span-2 xl:col-span-3">
@@ -1993,12 +2582,12 @@ export function QuarterlyExpenseWorkspace({
             </section>
           )}
 
-          {canManage && (
+          {selectedCycle && canEditCycle && (
             <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <SectionHeading
                 eyebrow="Quarter fuel plan"
-                title="Set fuel assumptions"
-                description="Estimate fuel by litres, price per litre, and monthly activity."
+                title="Submit or update the quarter fuel request"
+                description="Choose a vehicle or generator, its nest, the country vendor, usage, consumption rate and price. The application calculates the quarter estimate and saves it for everyone with access to this quarter."
               />
 
               <form
@@ -2010,37 +2599,21 @@ export function QuarterlyExpenseWorkspace({
 
                     return {
                       asset_id: values.get("asset_id"),
+                      nest_id: values.get("nest_id"),
                       vendor_id: values.get("vendor_id") || null,
-                      vendor_name: values.get("vendor_name"),
-                      litres_per_100km: Number(
-                        values.get("litres_per_100km") || 0,
-                      ),
-                      litres_per_hour: Number(
-                        values.get("litres_per_hour") || 0,
-                      ),
+                      projected_monthly_activity: Number(values.get("monthly_activity") || 0),
                       cost_per_litre: Number(
                         values.get("cost_per_litre") || 0,
                       ),
-                      monthly_km: Number(values.get("monthly_km") || 0),
-                      monthly_hours: Number(
-                        values.get("monthly_hours") || 0,
-                      ),
-                      monthly_litres: Number(
-                        values.get("monthly_litres") || 0,
-                      ),
-                      quarterly_litres: Number(
-                        values.get("quarterly_litres") || 0,
-                      ),
-                      quarterly_cost: Number(
-                        values.get("quarterly_cost") || 0,
-                      ),
+                      consumption_rate: Number(values.get("consumption_rate") || 0),
+                      consumption_basis: values.get("consumption_basis"),
                       notes: values.get("notes"),
                     };
                   },
                   "Fuel plan saved.",
                 )}
               >
-                <Field label="Vehicle / generator">
+                <Field label="Vehicle / generator / fuel card">
                   <select
                     className={selectClass}
                     name="asset_id"
@@ -2055,19 +2628,30 @@ export function QuarterlyExpenseWorkspace({
                         key={`fuel-asset-${String(asset.asset_id ?? "unknown")}-${index}`}
                         value={asset.asset_id}
                       >
-                        {asset.asset_name || asset.name}
-                        {asset.license_plate
-                          ? ` · ${asset.license_plate}`
-                          : ""}
+                        {asset.identifier || "Fuel asset"}
+                        {asset.model ? ` · ${asset.model}` : ""}
                       </option>
                     ))}
                   </select>
                 </Field>
 
-                <Field label="Fuel vendor">
+                <Field label="Nest">
+                  <select className={selectClass} name="nest_id" required defaultValue="">
+                    <option value="">Select the nest for this request</option>
+                    {data.nests.map((nest, index) => {
+                      const nestId = getNestId(nest);
+                      if (nestId === null) return null;
+                      if (!canManage && !canRecordNestIds.includes(String(nestId))) return null;
+                      return <option key={`fuel-plan-nest-${String(nestId)}-${index}`} value={String(nestId)}>{getNestLabel(nest)}</option>;
+                    })}
+                  </select>
+                </Field>
+
+                <Field label="Country fuel vendor">
                   <select
                     className={selectClass}
                     name="vendor_id"
+                    required
                     defaultValue=""
                   >
                     <option value="">Select vendor</option>
@@ -2082,31 +2666,33 @@ export function QuarterlyExpenseWorkspace({
                   </select>
                 </Field>
 
-                <Field label="Vendor name">
-                  <input
-                    className={inputClass}
-                    name="vendor_name"
-                    placeholder="Optional vendor"
-                  />
+                <Field label="Fuel type / usage basis">
+                  <select className={selectClass} name="consumption_basis" defaultValue="per_100km">
+                    <option value="per_100km">Vehicle · litres per 100 km</option>
+                    <option value="per_hour">Generator · litres per hour</option>
+                  </select>
                 </Field>
 
-                <Field label="Litres per 100 km">
+                <Field label="Consumption rate">
                   <input
                     className={inputClass}
-                    name="litres_per_100km"
+                    name="consumption_rate"
                     type="number"
                     min="0"
                     step="0.01"
+                    required
                   />
                 </Field>
 
-                <Field label="Litres per hour">
+                <Field label="Monthly km or generator hours">
                   <input
                     className={inputClass}
-                    name="litres_per_hour"
+                    name="monthly_activity"
                     type="number"
                     min="0"
                     step="0.01"
+                    required
+                    placeholder="Enter monthly kilometres or hours"
                   />
                 </Field>
 
@@ -2117,64 +2703,15 @@ export function QuarterlyExpenseWorkspace({
                     type="number"
                     min="0"
                     step="0.01"
+                    required
                   />
                 </Field>
 
-                <Field label="Monthly kilometres">
-                  <input
-                    className={inputClass}
-                    name="monthly_km"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                  />
-                </Field>
-
-                <Field label="Monthly generator hours">
-                  <input
-                    className={inputClass}
-                    name="monthly_hours"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                  />
-                </Field>
-
-                <Field label="Monthly litres">
-                  <input
-                    className={inputClass}
-                    name="monthly_litres"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                  />
-                </Field>
-
-                <Field label="Quarter litres">
-                  <input
-                    className={inputClass}
-                    name="quarterly_litres"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                  />
-                </Field>
-
-                <Field label="Quarter cost">
-                  <input
-                    className={inputClass}
-                    name="quarterly_cost"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                  />
-                </Field>
-
-                <Field label="Notes">
+                <Field label="Request notes">
                   <input
                     className={inputClass}
                     name="notes"
-                    placeholder="Fuel assumptions or context"
+                    placeholder="Purpose, route, operational context…"
                   />
                 </Field>
 
@@ -2231,15 +2768,15 @@ export function QuarterlyExpenseWorkspace({
                     <div className="xl:col-span-2">
                       <p className="font-bold text-slate-900">
                         {text(
-                          plan.asset_name ||
-                            plan.name ||
-                            plan.license_plate,
+                          data.fuelAssets.find((asset) => String(asset.asset_id) === String(plan.asset_id))?.identifier,
                           "Fuel asset",
                         )}
                       </p>
                       <p className="mt-1 text-xs text-slate-500">
-                        Plan: {money(plan.quarterly_cost, currency)} ·{" "}
-                        {numberValue(plan.quarterly_litres)} litres
+                        {text(data.fuelAssets.find((asset) => String(asset.asset_id) === String(plan.asset_id))?.model, "Fuel")}
+                        {" · "}{text(plan.vendor_name_snapshot, "Vendor not selected")}
+                        {" · Plan: "}{money(plan.estimated_quarterly_cost, currency)}
+                        {" · "}{numberValue(plan.estimated_quarterly_litres)} litres
                       </p>
                     </div>
 
@@ -2251,6 +2788,7 @@ export function QuarterlyExpenseWorkspace({
                         min="0"
                         step="0.01"
                         defaultValue={plan.actual_monthly_activity ?? ""}
+                        disabled={!canManage || !canEditCycle}
                       />
                     </Field>
 
@@ -2262,6 +2800,7 @@ export function QuarterlyExpenseWorkspace({
                         min="0"
                         step="0.01"
                         defaultValue={plan.actual_quarterly_litres ?? ""}
+                        disabled={!canManage || !canEditCycle}
                       />
                     </Field>
 
@@ -2273,6 +2812,7 @@ export function QuarterlyExpenseWorkspace({
                         min="0"
                         step="0.01"
                         defaultValue={plan.actual_quarterly_cost ?? ""}
+                        disabled={!canManage || !canEditCycle}
                       />
                     </Field>
 
@@ -2285,11 +2825,12 @@ export function QuarterlyExpenseWorkspace({
                         name="actual_notes"
                         defaultValue={plan.actual_notes ?? ""}
                         placeholder="Notes"
+                        disabled={!canManage || !canEditCycle}
                       />
                     </Field>
 
                     <div className="flex items-end">
-                      <button className={buttonPrimary} disabled={saving}>
+                      <button className={buttonPrimary} disabled={saving || !canManage || !canEditCycle}>
                         Save actuals
                       </button>
                     </div>
@@ -2323,7 +2864,7 @@ export function QuarterlyExpenseWorkspace({
                     {data.fuelAssets.map((asset, index) => (
                       <tr key={`fuel-asset-${String(asset.asset_id ?? "unknown")}-${index}`}>
                         <Td className="font-semibold text-slate-900">
-                          {text(asset.asset_name || asset.name)}
+                          {text(asset.model || asset.identifier)}
                         </Td>
                         <Td>{text(asset.asset_type)}</Td>
                         <Td>
@@ -2331,10 +2872,10 @@ export function QuarterlyExpenseWorkspace({
                             ? nestName(asset.nest_id)
                             : "Country-wide"}
                         </Td>
-                        <Td>{text(asset.license_plate)}</Td>
+                        <Td>{text(asset.identifier)}</Td>
                         <Td>{text(asset.purpose)}</Td>
                         <Td>
-                          <StatusPill status={asset.status} />
+                          <StatusPill status={asset.is_active ? "active" : "inactive"} />
                         </Td>
                       </tr>
                     ))}

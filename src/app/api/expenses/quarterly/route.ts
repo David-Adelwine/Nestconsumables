@@ -239,9 +239,32 @@ export async function GET(request: Request) {
     ].sort();
 
     const params = new URL(request.url).searchParams;
-    const country = params.get("country") ?? countries[0] ?? "";
+    const requestedCycleId = params.get("cycleId");
+    const requestedCountry = params.get("country");
+    let cycleCountry: string | null = null;
 
-    if (!countries.some((value) => value.toLowerCase() === country.toLowerCase())) {
+    if (requestedCycleId) {
+      const { data: cycleScope, error: scopeError } = await supabase
+        .from("app_expense_cycles")
+        .select("country")
+        .eq("cycle_id", requestedCycleId)
+        .maybeSingle();
+      if (scopeError) throw new Error(scopeError.message);
+      if (!cycleScope?.country) {
+        return NextResponse.json({ error: "Quarter not found." }, { status: 404 });
+      }
+      cycleCountry = cycleScope?.country ?? null;
+    }
+
+    // A quarter ID is authoritative. This prevents a stale/default country
+    // selection from loading a different country's workspace.
+    const country =
+      cycleCountry ?? requestedCountry ?? (countries.length === 1 ? countries[0] : "");
+
+    if (
+      country &&
+      !countries.some((value) => value.toLowerCase() === country.toLowerCase())
+    ) {
       return NextResponse.json(
         { error: "You do not have access to this country." },
         { status: 403 },
@@ -264,11 +287,40 @@ export async function GET(request: Request) {
     if (cycleError) throw new Error(cycleError.message);
 
     const cycles = (cycleRows ?? []) as CycleRow[];
-    const requestedCycleId = params.get("cycleId");
-    const selectedCycle =
-      cycles.find((cycle) => cycle.cycle_id === requestedCycleId) ??
-      cycles[0] ??
-      null;
+    const selectedCycle = requestedCycleId
+      ? cycles.find((cycle) => cycle.cycle_id === requestedCycleId) ?? null
+      : cycles[0] ?? null;
+    if (requestedCycleId && !selectedCycle) {
+      return NextResponse.json({ error: "Quarter not found." }, { status: 404 });
+    }
+
+    // The planning index only needs country access and quarter summaries.
+    // Skip expense, plan, fuel, and vendor quote reads until a quarter is opened.
+    if (params.get("directory") === "1") {
+      return NextResponse.json(
+        {
+          countries,
+          country,
+          currencyCode:
+            selectedCycle?.currency_code ?? currencyFor(country) ?? "USD",
+          nests: nests.map((nest) => ({
+            id: String(nest.nest_id),
+            code: nestCode(nest),
+            name: nest.nest_name,
+          })),
+          cycles: cycleRows ?? [],
+          selectedCycle: null,
+          permissions: {
+            canManageCountry: Boolean(country) && canManageCountry(user, country),
+            canRecordNestIds: nests
+              .filter((nest) => canRecordNest(user, nest.nest_id))
+              .map((nest) => String(nest.nest_id)),
+          },
+        },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
     const cycleIds = cycles.map((cycle) => cycle.cycle_id);
 
     let historyEntries: Record<string, unknown>[] = [];
@@ -293,7 +345,7 @@ export async function GET(request: Request) {
         supabase
           .from("app_expense_fuel_plans")
           .select(
-            "fuel_plan_id, cycle_id, asset_id, nest_id, projected_monthly_activity, consumption_rate, consumption_basis, cost_per_litre, estimated_quarterly_litres, estimated_quarterly_cost, actual_monthly_activity, actual_quarterly_litres, actual_quarterly_cost, actual_notes",
+            "fuel_plan_id, cycle_id, asset_id, nest_id, projected_monthly_activity, consumption_rate, consumption_basis, cost_per_litre, estimated_quarterly_litres, estimated_quarterly_cost, vendor_id, vendor_name_snapshot, actual_monthly_activity, actual_quarterly_litres, actual_quarterly_cost, actual_notes",
           )
           .in("cycle_id", cycleIds),
       ]);
@@ -317,8 +369,14 @@ export async function GET(request: Request) {
       ? historyFuelPlans.filter((row) => row.cycle_id === selectedCycle.cycle_id)
       : [];
 
-    const [itemResult, vendorResult, glResult, assetResult, budgetResult] =
-      await Promise.all([
+    const [
+      itemResult,
+      vendorResult,
+      glResult,
+      assetResult,
+      budgetResult,
+      planLineResult,
+    ] = await Promise.all([
         supabase
           .from("app_expense_catalog_items")
           .select(
@@ -359,6 +417,16 @@ export async function GET(request: Request) {
               )
               .eq("cycle_id", selectedCycle.cycle_id)
           : Promise.resolve({ data: [], error: null }),
+
+        selectedCycle
+          ? supabase
+              .from("app_expense_plan_lines")
+              .select(
+                "plan_line_id, cycle_id, nest_id, scope_type, scope_label, department, team, gl_code, category, expense_type, line_type, item_code, description, unit_measure, planned_quantity, planned_unit_cost, planned_amount, vendor_id, vendor_name_snapshot, blanket_po, notes, source_sheet, source_row, source_line_key, sort_order, copied_from_plan_line_id, created_by, updated_by, created_at, updated_at",
+              )
+              .eq("cycle_id", selectedCycle.cycle_id)
+              .order("sort_order")
+          : Promise.resolve({ data: [], error: null }),
       ]);
 
     for (const result of [
@@ -367,6 +435,7 @@ export async function GET(request: Request) {
       glResult,
       assetResult,
       budgetResult,
+      planLineResult,
     ]) {
       if (result.error) throw new Error(result.error.message);
     }
@@ -384,6 +453,25 @@ export async function GET(request: Request) {
 
       if (error) throw new Error(error.message);
       quotes = (data ?? []) as Record<string, unknown>[];
+    }
+
+    let planLineQuotes: Record<string, unknown>[] = [];
+    const planLineIds = (planLineResult.data ?? []).map((line) =>
+      String(line.plan_line_id),
+    );
+
+    if (planLineIds.length) {
+      const quoteBatchSize = 100;
+      for (let offset = 0; offset < planLineIds.length; offset += quoteBatchSize) {
+        const { data, error } = await supabase
+          .from("app_expense_plan_line_quotes")
+          .select(
+            "plan_line_quote_id, plan_line_id, vendor_id, vendor_name_snapshot, unit_cost, total_cost, note, is_selected",
+          )
+          .in("plan_line_id", planLineIds.slice(offset, offset + quoteBatchSize));
+        if (error) throw new Error(error.message);
+        planLineQuotes.push(...((data ?? []) as Record<string, unknown>[]));
+      }
     }
 
     let countryComparison: Record<string, unknown>[] = [];
@@ -467,6 +555,8 @@ export async function GET(request: Request) {
         selectedCycle,
         allocations,
         budgetLines: budgetResult.data ?? [],
+        planLines: planLineResult.data ?? [],
+        planLineQuotes,
         entries,
         historyEntries,
         historyAllocations,
@@ -611,8 +701,8 @@ export async function POST(request: Request) {
       const country = String(body.country ?? "").trim();
       const fiscalYear = Number(body.fiscalYear);
       const quarter = Number(body.quarter);
-      const rate = body.fxRateToUsd ? Number(body.fxRateToUsd) : null;
       const currencyCode = currencyFor(country);
+      const sourceCycleId = String(body.sourceCycleId ?? "").trim() || null;
 
       if (!canManageCountry(user, country)) {
         return NextResponse.json(
@@ -627,31 +717,24 @@ export async function POST(request: Request) {
         fiscalYear > 2100 ||
         !Number.isInteger(quarter) ||
         quarter < 1 ||
-        quarter > 4 ||
-        (rate !== null && (!Number.isFinite(rate) || rate <= 0))
+        quarter > 4
       ) {
         return NextResponse.json(
-          { error: "Enter a valid country, year, quarter, and FX rate." },
+          { error: "Enter a valid country, year, and quarter." },
           { status: 400 },
         );
       }
 
-      const { data, error } = await supabase
-        .from("app_expense_cycles")
-        .insert({
-          country,
-          fiscal_year: fiscalYear,
-          quarter,
-          currency_code: currencyCode,
-          fx_rate_to_usd: rate,
-          status: "draft",
-          owner_user_id: user.userId,
-          created_by: user.userId,
-        })
-        .select(
-          "cycle_id, country, fiscal_year, quarter, currency_code, fx_rate_to_usd, status, owner_user_id, source_cycle_id, created_at, updated_at",
-        )
-        .single();
+      const { data, error } = await supabase.rpc(
+        "app_create_expense_cycle_from_source",
+        {
+          p_country: country,
+          p_fiscal_year: fiscalYear,
+          p_quarter: quarter,
+          p_currency_code: currencyCode,
+          p_source_cycle_id: sourceCycleId,
+        },
+      );
 
       if (error?.code === "23505") {
         return NextResponse.json(
@@ -660,7 +743,352 @@ export async function POST(request: Request) {
         );
       }
       if (error) throw new Error(error.message);
-      return NextResponse.json({ cycle: data }, { status: 201 });
+
+      const createdCycle = data as Record<string, any>;
+      const createdCycleId = String(createdCycle.cycle_id ?? "");
+      if (!createdCycleId) throw new Error("The quarter was created but its ID was not returned.");
+
+      const allNests = await accessibleNests(supabase, user);
+      const countryNests = allNests.filter(
+        (nest) => nest.country?.toLowerCase() === country.toLowerCase(),
+      );
+      const starterCounts = {
+        allocations: 0,
+        plan_lines: 0,
+        budget_lines: 0,
+        fuel_plans: 0,
+      };
+
+      if (countryNests.length) {
+        const { data: allocationRows, error: allocationError } = await supabase
+          .from("app_expense_nest_allocations")
+          .upsert(
+            countryNests.map((nest) => ({
+              cycle_id: createdCycleId,
+              nest_id: nest.nest_id,
+              allocation_amount: 0,
+              created_by: user.userId,
+              updated_by: user.userId,
+              updated_at: now,
+            })),
+            { onConflict: "cycle_id,nest_id", ignoreDuplicates: true },
+          )
+          .select("allocation_id");
+        if (allocationError) throw new Error(allocationError.message);
+        starterCounts.allocations = allocationRows?.length ?? 0;
+      }
+
+      const { data: existingPlanLines, error: existingPlansError } = await supabase
+        .from("app_expense_plan_lines")
+        .select("plan_line_id")
+        .eq("cycle_id", createdCycleId)
+        .limit(1);
+      if (existingPlansError) throw new Error(existingPlansError.message);
+
+      if (!existingPlanLines?.length) {
+        const { data: sheetTemplates, error: templateError } = await supabase
+          .from("app_expense_plan_templates")
+          .select("template_line_id, country, nest_key, scope_type, scope_label, department, gl_code, category, expense_type, line_type, item_code, description, unit_measure, planned_quantity, planned_unit_cost, planned_amount, vendor_id, vendor_name_snapshot, blanket_po, notes, source_sheet, source_row, source_line_key, sort_order")
+          .ilike("country", country)
+          .order("sort_order");
+        if (templateError) throw new Error(templateError.message);
+
+        if (sheetTemplates?.length) {
+          const { data: countryVendors, error: countryVendorsError } = await supabase
+            .from("app_expense_catalog_vendors")
+            .select("vendor_id, vendor_name")
+            .ilike("country", country)
+            .eq("is_active", true);
+          if (countryVendorsError) throw new Error(countryVendorsError.message);
+          const vendorIds = new Map<string, string>(
+            (countryVendors ?? []).map((vendor) => [vendor.vendor_name.trim().toLowerCase(), vendor.vendor_id] as const),
+          );
+          const nestKey = (value: unknown) => String(value ?? "").replace(/[^a-z0-9]/gi, "").toUpperCase();
+          const nestByKey = new Map<string, NestRow>();
+          for (const nest of countryNests) {
+            nestByKey.set(nestKey(nest.nest_key), nest);
+            nestByKey.set(nestKey(nestCode(nest)), nest);
+          }
+
+          const mappedTemplates = sheetTemplates.flatMap((template) => {
+            const nest = template.scope_type === "nest"
+              ? nestByKey.get(nestKey(template.nest_key))
+              : null;
+            if (template.scope_type === "nest" && !nest) return [];
+            return [{ template, nest }];
+          });
+          const planRows = mappedTemplates.map(({ template, nest }) => ({
+            cycle_id: createdCycleId,
+            nest_id: nest?.nest_id ?? null,
+            scope_type: template.scope_type,
+            scope_label: template.scope_label || nest?.nest_name || country,
+            department: template.department || "",
+            team: null,
+            gl_code: template.gl_code,
+            category: template.category,
+            expense_type: template.expense_type,
+            line_type: template.line_type,
+            item_code: template.item_code,
+            description: template.description || "",
+            unit_measure: template.unit_measure,
+            planned_quantity: template.planned_quantity,
+            planned_unit_cost: template.planned_unit_cost,
+            planned_amount: template.planned_amount,
+            vendor_id: template.vendor_id ?? vendorIds.get(String(template.vendor_name_snapshot ?? "").trim().toLowerCase()) ?? null,
+            vendor_name_snapshot: template.vendor_name_snapshot,
+            blanket_po: template.blanket_po,
+            notes: template.notes,
+            source_sheet: template.source_sheet,
+            source_row: template.source_row,
+            source_line_key: template.source_line_key,
+            sort_order: template.sort_order,
+            created_by: user.userId,
+            updated_by: user.userId,
+          }));
+          const planLineByTemplateId = new Map<string, string>();
+          const templateBySourceLineKey = new Map<string, (typeof mappedTemplates)[number]["template"]>(
+            mappedTemplates.map(({ template }) => [String(template.source_line_key), template] as const),
+          );
+
+          for (let offset = 0; offset < planRows.length; offset += 300) {
+            const { data: inserted, error: insertError } = await supabase
+              .from("app_expense_plan_lines")
+              .insert(planRows.slice(offset, offset + 300))
+              .select("plan_line_id, source_line_key");
+            if (insertError) throw new Error(insertError.message);
+            starterCounts.plan_lines += inserted?.length ?? 0;
+            for (const row of inserted ?? []) {
+              const template = templateBySourceLineKey.get(row.source_line_key);
+              if (template) planLineByTemplateId.set(template.template_line_id, row.plan_line_id);
+            }
+          }
+
+          const templateIds = mappedTemplates.map(({ template }) => template.template_line_id);
+          for (let offset = 0; offset < templateIds.length; offset += 400) {
+            const { data: templateQuotes, error: templateQuotesError } = await supabase
+              .from("app_expense_plan_template_quotes")
+              .select("template_line_id, vendor_id, vendor_name_snapshot, unit_cost, total_cost, note, is_selected")
+              .in("template_line_id", templateIds.slice(offset, offset + 400));
+            if (templateQuotesError) throw new Error(templateQuotesError.message);
+            const quoteRows = (templateQuotes ?? []).flatMap((quote) => {
+              const planLineId = planLineByTemplateId.get(quote.template_line_id);
+              if (!planLineId) return [];
+              return [{
+                plan_line_id: planLineId,
+                vendor_id: quote.vendor_id ?? vendorIds.get(quote.vendor_name_snapshot.trim().toLowerCase()) ?? null,
+                vendor_name_snapshot: quote.vendor_name_snapshot,
+                unit_cost: quote.unit_cost,
+                total_cost: quote.total_cost,
+                note: quote.note,
+                is_selected: quote.is_selected,
+                created_by: user.userId,
+              }];
+            });
+            for (let quoteOffset = 0; quoteOffset < quoteRows.length; quoteOffset += 300) {
+              const { error: insertQuoteError } = await supabase
+                .from("app_expense_plan_line_quotes")
+                .insert(quoteRows.slice(quoteOffset, quoteOffset + 300));
+              if (insertQuoteError) throw new Error(insertQuoteError.message);
+            }
+          }
+        } else {
+          const { data: catalogItems, error: catalogError } = await supabase
+            .from("app_expense_catalog_items")
+            .select("item_id, item_code, item_name, category, department, gl_code, expense_type, unit_measure")
+            .ilike("country", country)
+            .eq("is_active", true)
+            .order("item_name");
+          if (catalogError) throw new Error(catalogError.message);
+          const { data: glRows, error: glError } = catalogItems?.length
+            ? { data: [], error: null }
+            : await supabase
+                .from("app_expense_gl_codes")
+                .select("gl_code, description, category")
+                .ilike("country", country)
+                .eq("is_active", true)
+                .order("gl_code");
+          if (glError) throw new Error(glError.message);
+          const templates = catalogItems?.length
+            ? catalogItems.map((item, index) => ({
+                itemCode: item.item_code,
+                description: item.item_name,
+                department: item.department ?? "",
+                glCode: item.gl_code,
+                category: item.category,
+                expenseType: item.expense_type,
+                unitMeasure: item.unit_measure,
+                itemId: item.item_id,
+                sortOrder: index,
+                source: "Expense catalog",
+              }))
+            : (glRows ?? []).map((item, index) => ({
+                itemCode: item.gl_code,
+                description: item.description,
+                department: "Country Ops",
+                glCode: item.gl_code,
+                category: item.category,
+                expenseType: null,
+                unitMeasure: null,
+                itemId: item.gl_code,
+                sortOrder: index,
+                source: "GL code catalog",
+              }));
+          const rows = countryNests.flatMap((nest) => templates.map((template) => ({
+            cycle_id: createdCycleId,
+            nest_id: nest.nest_id,
+            scope_type: "nest",
+            scope_label: nest.nest_name,
+            department: template.department || "",
+            team: null,
+            gl_code: template.glCode || null,
+            category: template.category || null,
+            expense_type: template.expenseType,
+            line_type: template.expenseType,
+            item_code: template.itemCode || null,
+            description: template.description || template.itemCode || "Planned expense",
+            unit_measure: template.unitMeasure,
+            planned_quantity: null,
+            planned_unit_cost: null,
+            planned_amount: null,
+            vendor_id: null,
+            vendor_name_snapshot: null,
+            blanket_po: null,
+            notes: null,
+            source_sheet: template.source,
+            source_line_key: `${nest.nest_id}:${template.itemId}`,
+            sort_order: template.sortOrder,
+            created_by: user.userId,
+            updated_by: user.userId,
+          })));
+          for (let offset = 0; offset < rows.length; offset += 300) {
+            const { data: inserted, error: insertError } = await supabase
+              .from("app_expense_plan_lines")
+              .insert(rows.slice(offset, offset + 300))
+              .select("plan_line_id");
+            if (insertError) throw new Error(insertError.message);
+            starterCounts.plan_lines += inserted?.length ?? 0;
+          }
+        }
+      }
+
+      const { data: existingBudgets, error: budgetReadError } = await supabase
+        .from("app_expense_budgets")
+        .select("budget_id")
+        .eq("cycle_id", createdCycleId)
+        .limit(1);
+      if (budgetReadError) throw new Error(budgetReadError.message);
+      if (!existingBudgets?.length) {
+        const { data: quarterPlanRows, error: quarterPlanError } = await supabase
+          .from("app_expense_plan_lines")
+          .select("nest_id, scope_type, scope_label, department, team, gl_code, category, planned_amount")
+          .eq("cycle_id", createdCycleId);
+        if (quarterPlanError) throw new Error(quarterPlanError.message);
+        const budgetGroups = new Map<string, Record<string, any>>();
+        for (const line of quarterPlanRows ?? []) {
+          if (!line.gl_code) continue;
+          const key = [line.scope_type, line.nest_id ?? "country", line.department ?? "", line.team ?? "", line.gl_code, line.category ?? ""].join("|");
+          const existing = budgetGroups.get(key);
+          if (existing) {
+            existing.budget_amount += Number(line.planned_amount ?? 0);
+          } else {
+            budgetGroups.set(key, {
+              cycle_id: createdCycleId,
+              nest_id: line.nest_id,
+              scope_type: line.scope_type === "nest" ? "nest" : "country",
+              scope_label: line.scope_label ?? country,
+              department: line.department ?? "",
+              team: line.team,
+              gl_code: line.gl_code,
+              category: line.category ?? "Uncategorized",
+              summary_group: line.category,
+              budget_amount: Number(line.planned_amount ?? 0),
+              created_by: user.userId,
+            });
+          }
+        }
+        let budgetRows = [...budgetGroups.values()];
+        if (!budgetRows.length) {
+          const { data: glCodes, error: glCodeError } = await supabase
+            .from("app_expense_gl_codes")
+            .select("gl_code, description, category, summary_group")
+            .ilike("country", country)
+            .eq("is_active", true)
+            .order("gl_code");
+          if (glCodeError) throw new Error(glCodeError.message);
+          budgetRows = (glCodes ?? []).map((item) => ({
+            cycle_id: createdCycleId,
+            nest_id: null,
+            scope_type: "country",
+            scope_label: country,
+            department: "Country Ops",
+            team: null,
+            gl_code: item.gl_code,
+            category: item.category ?? "Uncategorized",
+            summary_group: item.summary_group,
+            budget_amount: 0,
+            created_by: user.userId,
+          }));
+        }
+        for (let offset = 0; offset < budgetRows.length; offset += 300) {
+          const { data: inserted, error: insertError } = await supabase
+            .from("app_expense_budgets")
+            .insert(budgetRows.slice(offset, offset + 300))
+            .select("budget_id");
+          if (insertError) throw new Error(insertError.message);
+          starterCounts.budget_lines += inserted?.length ?? 0;
+        }
+      }
+
+      const { data: fuelAssets, error: fuelAssetsError } = await supabase
+        .from("app_expense_fuel_assets")
+        .select("asset_id, nest_id, asset_type, vendor_name, consumption_rate, consumption_basis")
+        .ilike("country", country)
+        .eq("is_active", true);
+      if (fuelAssetsError) throw new Error(fuelAssetsError.message);
+      if (fuelAssets?.length && countryNests.length) {
+        const fuelRows = fuelAssets.map((asset) => ({
+          cycle_id: createdCycleId,
+          asset_id: asset.asset_id,
+          nest_id: asset.nest_id ?? countryNests[0].nest_id,
+          projected_monthly_activity: 0,
+          consumption_rate: Number(asset.consumption_rate ?? 0),
+          consumption_basis: ["per_hour", "per_100km"].includes(String(asset.consumption_basis))
+            ? asset.consumption_basis
+            : asset.asset_type === "generator" ? "per_hour" : "per_100km",
+          cost_per_litre: 0,
+          vendor_id: null,
+          vendor_name_snapshot: asset.vendor_name ?? null,
+          created_by: user.userId,
+          updated_at: now,
+        }));
+        const { data: insertedFuelPlans, error: fuelPlanError } = await supabase
+          .from("app_expense_fuel_plans")
+          .upsert(fuelRows, {
+            onConflict: "cycle_id,asset_id",
+            ignoreDuplicates: true,
+          })
+          .select("fuel_plan_id");
+        if (fuelPlanError) throw new Error(fuelPlanError.message);
+        starterCounts.fuel_plans = insertedFuelPlans?.length ?? 0;
+      }
+
+      return NextResponse.json(
+        {
+          cycle: {
+            ...createdCycle,
+            seeded: {
+              ...(createdCycle.seeded ?? {}),
+              ...Object.fromEntries(
+                Object.entries(starterCounts).map(([key, count]) => [
+                  key,
+                  Number((createdCycle.seeded as Record<string, unknown> | undefined)?.[key] ?? 0) + count,
+                ]),
+              ),
+            },
+          },
+        },
+        { status: 201 },
+      );
     }
 
     const cycleId = String(body.cycleId ?? "");
@@ -680,6 +1108,25 @@ export async function POST(request: Request) {
     }
 
     const manager = canManageCountry(user, cycle.country);
+    const editableActions = new Set([
+      "save_fx_rate",
+      "save_allocation",
+      "save_allocations",
+      "save_budget_line",
+      "save_plan_line",
+      "delete_plan_line",
+      "add_expense",
+      "add_fuel_asset",
+      "save_fuel_plan",
+      "record_fuel_actual",
+    ]);
+
+    if (editableActions.has(action) && cycle.status !== "open") {
+      return NextResponse.json(
+        { error: "This quarter is read-only. Open quarters can be edited." },
+        { status: 409 },
+      );
+    }
 
     if (action === "set_cycle_status") {
       const nextStatus = String(body.status ?? "");
@@ -721,7 +1168,7 @@ export async function POST(request: Request) {
 
     if (action === "save_fx_rate") {
       const rate = Number(body.fxRateToUsd);
-      if (!manager || !Number.isFinite(rate) || rate <= 0) {
+      if (!manager || cycle.status !== "open" || !Number.isFinite(rate) || rate <= 0) {
         return NextResponse.json(
           { error: "Enter a valid USD rate." },
           { status: 400 },
@@ -741,13 +1188,69 @@ export async function POST(request: Request) {
       return NextResponse.json({ cycleId, fxRateToUsd: rate });
     }
 
+    if (action === "save_allocations") {
+      const values = Array.isArray(body.allocations)
+        ? body.allocations as Array<Record<string, unknown>>
+        : [];
+      if (!manager || cycle.status !== "open" || values.length === 0) {
+        return NextResponse.json(
+          { error: "An open quarter and country planning access are required to save allocations." },
+          { status: 403 },
+        );
+      }
+
+      const rows = values.map((value) => ({
+        nest_id: Number(value.nestId),
+        allocation_amount: Number(value.allocatedAmount),
+      }));
+      if (rows.some((row) =>
+        !Number.isSafeInteger(row.nest_id) ||
+        row.nest_id <= 0 ||
+        !Number.isFinite(row.allocation_amount) ||
+        row.allocation_amount < 0
+      )) {
+        return NextResponse.json({ error: "Enter valid allocation amounts." }, { status: 400 });
+      }
+
+      const { data: validNests, error: nestsError } = await supabase
+        .from("company_nests")
+        .select("nest_id, country")
+        .eq("is_production_nest", true)
+        .in("nest_id", rows.map((row) => row.nest_id));
+      if (nestsError) throw new Error(nestsError.message);
+      const validIds = new Set(
+        (validNests ?? [])
+          .filter((nest) => nest.country?.toLowerCase() === cycle.country.toLowerCase())
+          .map((nest) => Number(nest.nest_id)),
+      );
+      if (rows.some((row) => !validIds.has(row.nest_id))) {
+        return NextResponse.json({ error: "Every allocation must use a production nest in this country." }, { status: 400 });
+      }
+
+      const { error } = await supabase
+        .from("app_expense_nest_allocations")
+        .upsert(
+          rows.map((row) => ({
+            cycle_id: cycleId,
+            nest_id: row.nest_id,
+            allocation_amount: row.allocation_amount,
+            created_by: user.userId,
+            updated_by: user.userId,
+            updated_at: now,
+          })),
+          { onConflict: "cycle_id,nest_id" },
+        );
+      if (error) throw new Error(error.message);
+      return NextResponse.json({ cycleId, saved: rows.length });
+    }
+
     if (action === "save_allocation") {
       const nestId = Number(body.nestId);
       const allocationAmount = Number(body.allocationAmount);
 
       if (
         !manager ||
-        cycle.status === "closed" ||
+        cycle.status !== "open" ||
         !Number.isSafeInteger(nestId) ||
         nestId <= 0 ||
         !Number.isFinite(allocationAmount) ||
@@ -797,8 +1300,173 @@ export async function POST(request: Request) {
       return NextResponse.json({ allocation: data });
     }
 
+    if (action === "save_plan_line") {
+      const planLineId = String(body.planLineId ?? "").trim();
+      const scopeType = String(body.scopeType ?? "nest");
+      const nestId = body.nestId === null || body.nestId === "" || body.nestId === undefined
+        ? null
+        : Number(body.nestId);
+      const allowedScopes = ["nest", "country", "hq", "central", "donor_program", "other"];
+      const optionalAmount = (value: unknown): number | null => {
+        if (value === null || value === undefined || String(value).trim() === "") return null;
+        const parsed = Number(value);
+        return Number.isFinite(parsed) && parsed >= 0 ? parsed : Number.NaN;
+      };
+      const plannedQuantity = optionalAmount(body.plannedQuantity);
+      const plannedUnitCost = optionalAmount(body.plannedUnitCost);
+      const plannedAmount = optionalAmount(body.plannedAmount);
+
+      if (
+        !allowedScopes.includes(scopeType) ||
+        (scopeType === "nest" && (!nestId || !Number.isSafeInteger(nestId))) ||
+        (nestId !== null && (!Number.isSafeInteger(nestId) || nestId <= 0)) ||
+        [plannedQuantity, plannedUnitCost, plannedAmount].some((value) => Number.isNaN(value))
+      ) {
+        return NextResponse.json(
+          { error: "Enter valid plan-line scope, quantity, and costs." },
+          { status: 400 },
+        );
+      }
+
+      if (!manager && (nestId === null || !canRecordNest(user, nestId))) {
+        return NextResponse.json(
+          { error: "You can only edit plan lines for your assigned nest." },
+          { status: 403 },
+        );
+      }
+      if (scopeType !== "nest" && !manager) {
+        return NextResponse.json(
+          { error: "Only country planners can edit country-level plan lines." },
+          { status: 403 },
+        );
+      }
+
+      if (nestId !== null) {
+        const { data: nest, error: nestError } = await supabase
+          .from("company_nests")
+          .select("nest_id, country, is_production_nest")
+          .eq("nest_id", nestId)
+          .maybeSingle();
+        if (nestError) throw new Error(nestError.message);
+        if (
+          !nest ||
+          !nest.is_production_nest ||
+          nest.country?.toLowerCase() !== cycle.country.toLowerCase()
+        ) {
+          return NextResponse.json(
+            { error: "Choose a production nest in this country." },
+            { status: 400 },
+          );
+        }
+      }
+
+      let vendorNameSnapshot = String(body.vendorNameSnapshot ?? "").trim() || null;
+      const vendorId = String(body.vendorId ?? "").trim() || null;
+      if (vendorId) {
+        const { data: vendor, error: vendorError } = await supabase
+          .from("app_expense_catalog_vendors")
+          .select("vendor_id, vendor_name")
+          .eq("vendor_id", vendorId)
+          .ilike("country", cycle.country)
+          .eq("is_active", true)
+          .maybeSingle();
+        if (vendorError) throw new Error(vendorError.message);
+        if (!vendor) {
+          return NextResponse.json(
+            { error: "Choose an active vendor from this country." },
+            { status: 400 },
+          );
+        }
+        vendorNameSnapshot = vendor.vendor_name;
+      }
+
+      const lineValues = {
+        cycle_id: cycleId,
+        nest_id: nestId,
+        scope_type: scopeType,
+        scope_label: String(body.scopeLabel ?? "").trim() || null,
+        department: String(body.department ?? "").trim(),
+        team: String(body.team ?? "").trim() || null,
+        gl_code: String(body.glCode ?? "").trim() || null,
+        category: String(body.category ?? "").trim() || null,
+        expense_type: String(body.expenseType ?? "").trim() || null,
+        line_type: String(body.lineType ?? "").trim() || null,
+        item_code: String(body.itemCode ?? "").trim() || null,
+        description: String(body.description ?? "").trim(),
+        unit_measure: String(body.unitMeasure ?? "").trim() || null,
+        planned_quantity: plannedQuantity,
+        planned_unit_cost: plannedUnitCost,
+        planned_amount: plannedAmount,
+        vendor_id: vendorId,
+        vendor_name_snapshot: vendorNameSnapshot,
+        blanket_po: String(body.blanketPo ?? "").trim() || null,
+        notes: String(body.notes ?? "").trim() || null,
+        updated_by: user.userId,
+        updated_at: now,
+      };
+
+      let savedLine;
+      if (planLineId) {
+        const { data: existing, error: existingError } = await supabase
+          .from("app_expense_plan_lines")
+          .select("plan_line_id, nest_id")
+          .eq("plan_line_id", planLineId)
+          .eq("cycle_id", cycleId)
+          .maybeSingle();
+        if (existingError) throw new Error(existingError.message);
+        if (!existing) {
+          return NextResponse.json({ error: "Plan line not found." }, { status: 404 });
+        }
+        if (!manager && (!existing.nest_id || !canRecordNest(user, Number(existing.nest_id)))) {
+          return NextResponse.json({ error: "You cannot edit this plan line." }, { status: 403 });
+        }
+        const { data, error } = await supabase
+          .from("app_expense_plan_lines")
+          .update(lineValues)
+          .eq("plan_line_id", planLineId)
+          .select("*")
+          .single();
+        if (error) throw new Error(error.message);
+        savedLine = data;
+      } else {
+        const { data, error } = await supabase
+          .from("app_expense_plan_lines")
+          .insert({ ...lineValues, created_by: user.userId })
+          .select("*")
+          .single();
+        if (error) throw new Error(error.message);
+        savedLine = data;
+      }
+
+      return NextResponse.json({ planLine: savedLine }, { status: planLineId ? 200 : 201 });
+    }
+
+    if (action === "delete_plan_line") {
+      const planLineId = String(body.planLineId ?? "").trim();
+      if (!planLineId) {
+        return NextResponse.json({ error: "Select a plan line to remove." }, { status: 400 });
+      }
+      const { data: line, error: lineError } = await supabase
+        .from("app_expense_plan_lines")
+        .select("plan_line_id, nest_id")
+        .eq("plan_line_id", planLineId)
+        .eq("cycle_id", cycleId)
+        .maybeSingle();
+      if (lineError) throw new Error(lineError.message);
+      if (!line) return NextResponse.json({ error: "Plan line not found." }, { status: 404 });
+      if (!manager && (!line.nest_id || !canRecordNest(user, Number(line.nest_id)))) {
+        return NextResponse.json({ error: "You cannot remove this plan line." }, { status: 403 });
+      }
+      const { error } = await supabase
+        .from("app_expense_plan_lines")
+        .delete()
+        .eq("plan_line_id", planLineId);
+      if (error) throw new Error(error.message);
+      return NextResponse.json({ planLineId, deleted: true });
+    }
+
     if (action === "save_budget_line") {
-      if (!manager || cycle.status === "closed") {
+      if (!manager || cycle.status !== "open") {
         return NextResponse.json(
           { error: "Only country planners can edit this quarter’s budget." },
           { status: 403 },
@@ -807,6 +1475,8 @@ export async function POST(request: Request) {
 
       const nestId = body.nestId ? Number(body.nestId) : null;
       const budgetAmount = Number(body.budgetAmount);
+      const glCode = String(body.glCode ?? "").trim();
+      const category = String(body.category ?? "").trim();
       const scopeType = String(body.scopeType ?? "nest");
       const allowedScopes = [
         "nest",
@@ -821,6 +1491,8 @@ export async function POST(request: Request) {
         (nestId !== null && (!Number.isSafeInteger(nestId) || nestId <= 0)) ||
         !Number.isFinite(budgetAmount) ||
         budgetAmount < 0 ||
+        !glCode ||
+        !category ||
         !allowedScopes.includes(scopeType)
       ) {
         return NextResponse.json(
@@ -836,10 +1508,10 @@ export async function POST(request: Request) {
           nest_id: nestId,
           scope_type: scopeType,
           scope_label: String(body.scopeLabel ?? "").trim() || null,
-          department: String(body.department ?? "").trim() || null,
+          department: String(body.department ?? "").trim(),
           team: String(body.team ?? "").trim() || null,
-          gl_code: String(body.glCode ?? "").trim() || null,
-          category: String(body.category ?? "").trim() || null,
+          gl_code: glCode,
+          category,
           summary_group: String(body.summaryGroup ?? "").trim() || null,
           budget_amount: budgetAmount,
           blanket_po: String(body.blanketPo ?? "").trim() || null,
@@ -1063,6 +1735,7 @@ export async function POST(request: Request) {
       const status = String(body.status ?? "");
       if (
         !manager ||
+        cycle.status !== "in_review" ||
         !expenseId ||
         !["approved", "rejected", "actual"].includes(status)
       ) {
@@ -1114,12 +1787,13 @@ export async function POST(request: Request) {
     }
 
     if (action === "add_fuel_asset") {
-      const nestId = Number(body.nestId);
       const assetType = String(body.assetType ?? "");
       const identifier = String(body.identifier ?? "").trim();
+      const requestedNestId = body.nestId ? Number(body.nestId) : null;
 
       if (
         !manager ||
+        cycle.status !== "open" ||
         !["vehicle", "generator", "fuel_card", "other"].includes(assetType) ||
         !identifier
       ) {
@@ -1129,11 +1803,26 @@ export async function POST(request: Request) {
         );
       }
 
+      if (requestedNestId !== null) {
+        if (!Number.isSafeInteger(requestedNestId) || requestedNestId <= 0) {
+          return NextResponse.json({ error: "Choose a valid production nest." }, { status: 400 });
+        }
+        const { data: assetNest, error: assetNestError } = await supabase
+          .from("company_nests")
+          .select("nest_id, country, is_production_nest")
+          .eq("nest_id", requestedNestId)
+          .maybeSingle();
+        if (assetNestError) throw new Error(assetNestError.message);
+        if (!assetNest || !assetNest.is_production_nest || assetNest.country?.toLowerCase() !== cycle.country.toLowerCase()) {
+          return NextResponse.json({ error: "Choose a production nest in this country." }, { status: 400 });
+        }
+      }
+
       const { data, error } = await supabase
         .from("app_expense_fuel_assets")
         .insert({
           country: cycle.country,
-          nest_id: nestId || null,
+          nest_id: requestedNestId,
           asset_type: assetType,
           identifier,
           model: String(body.model ?? "").trim() || null,
@@ -1159,16 +1848,20 @@ export async function POST(request: Request) {
 
     if (action === "save_fuel_plan") {
       const assetId = String(body.assetId ?? "");
-      const nestId = Number(body.nestId);
+      const requestedNestId = Number(body.nestId);
+      const nestId = Number.isSafeInteger(requestedNestId) && requestedNestId > 0
+        ? requestedNestId
+        : 0;
       const monthly = Number(body.projectedMonthlyActivity);
       const consumption = Number(body.consumptionRate);
       const basis = String(body.consumptionBasis ?? "");
       const costPerLitre = Number(body.costPerLitre);
 
       if (
-        cycle.status === "closed" ||
+        cycle.status !== "open" ||
         (!manager && !canRecordNest(user, nestId)) ||
         !assetId ||
+        !nestId ||
         !Number.isFinite(monthly) ||
         monthly < 0 ||
         !Number.isFinite(consumption) ||
@@ -1185,31 +1878,66 @@ export async function POST(request: Request) {
 
       const { data: asset, error: assetError } = await supabase
         .from("app_expense_fuel_assets")
-        .select("asset_id, country, nest_id")
+        .select("asset_id, country, nest_id, asset_type")
         .eq("asset_id", assetId)
         .eq("is_active", true)
         .maybeSingle();
 
       if (assetError) throw new Error(assetError.message);
-      if (!asset || asset.country.toLowerCase() !== cycle.country.toLowerCase()) {
+      if (
+        !asset ||
+        asset.country.toLowerCase() !== cycle.country.toLowerCase() ||
+        (asset.nest_id !== null && Number(asset.nest_id) !== nestId)
+      ) {
         return NextResponse.json(
           { error: "Choose an active asset from this country." },
           { status: 400 },
         );
       }
 
-      const planNestId = asset.nest_id ?? nestId;
+      const { data: nest, error: nestError } = await supabase
+        .from("company_nests")
+        .select("nest_id, country, is_production_nest")
+        .eq("nest_id", nestId)
+        .maybeSingle();
+      if (nestError) throw new Error(nestError.message);
+      if (!nest || !nest.is_production_nest || nest.country?.toLowerCase() !== cycle.country.toLowerCase()) {
+        return NextResponse.json({ error: "Choose a production nest in this country." }, { status: 400 });
+      }
+
+      const vendorId = String(body.vendorId ?? "").trim() || null;
+      let vendorNameSnapshot = String(body.vendorNameSnapshot ?? "").trim() || null;
+      if (!vendorId) {
+        return NextResponse.json({ error: "Select a fuel vendor from this country." }, { status: 400 });
+      }
+      if (vendorId) {
+        const { data: vendor, error: vendorError } = await supabase
+          .from("app_expense_catalog_vendors")
+          .select("vendor_id, vendor_name")
+          .eq("vendor_id", vendorId)
+          .ilike("country", cycle.country)
+          .eq("is_active", true)
+          .maybeSingle();
+        if (vendorError) throw new Error(vendorError.message);
+        if (!vendor) {
+          return NextResponse.json({ error: "Choose a vendor from this country." }, { status: 400 });
+        }
+        vendorNameSnapshot = vendor.vendor_name;
+      }
+
       const { data, error } = await supabase
         .from("app_expense_fuel_plans")
         .upsert(
           {
             cycle_id: cycleId,
             asset_id: assetId,
-            nest_id: planNestId,
+            nest_id: nestId,
             projected_monthly_activity: monthly,
             consumption_rate: consumption,
             consumption_basis: basis,
             cost_per_litre: costPerLitre,
+            vendor_id: vendorId,
+            vendor_name_snapshot: vendorNameSnapshot,
             notes: String(body.notes ?? "").trim() || null,
             created_by: user.userId,
             updated_at: now,
@@ -1217,7 +1945,7 @@ export async function POST(request: Request) {
           { onConflict: "cycle_id,asset_id" },
         )
         .select(
-          "fuel_plan_id, cycle_id, asset_id, nest_id, projected_monthly_activity, consumption_rate, consumption_basis, cost_per_litre, estimated_quarterly_litres, estimated_quarterly_cost, actual_monthly_activity, actual_quarterly_litres, actual_quarterly_cost, actual_notes",
+          "fuel_plan_id, cycle_id, asset_id, nest_id, projected_monthly_activity, consumption_rate, consumption_basis, cost_per_litre, estimated_quarterly_litres, estimated_quarterly_cost, vendor_id, vendor_name_snapshot, actual_monthly_activity, actual_quarterly_litres, actual_quarterly_cost, actual_notes",
         )
         .single();
 
@@ -1233,6 +1961,7 @@ export async function POST(request: Request) {
 
       if (
         !manager ||
+        cycle.status !== "open" ||
         !planId ||
         !Number.isFinite(actualMonthly) ||
         actualMonthly < 0 ||
