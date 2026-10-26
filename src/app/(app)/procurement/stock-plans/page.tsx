@@ -122,11 +122,7 @@ export default function StockPlanBuilderPage() {
 
   const categoryOptions = useMemo(
     () =>
-      [
-        ...new Set(
-          items.map((item) => item.category || "Unassigned"),
-        ),
-      ].sort(),
+      [...new Set(items.map((item) => item.category || "Unassigned"))].sort(),
     [items],
   );
 
@@ -322,29 +318,39 @@ export default function StockPlanBuilderPage() {
     }
   }
 
+  const inputClass =
+    "h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-100";
+
+  const selectClass =
+    "h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100";
+
   return (
-    <div className="mx-auto max-w-7xl space-y-7">
-      <header className="flex flex-col justify-between gap-4 rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-white p-6 shadow-sm sm:flex-row sm:items-end">
-        <div>
-          <p className="text-xs font-semibold tracking-[0.16em] text-emerald-700">
-            PROCUREMENT
-          </p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-gray-900">
-            Stock plan
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm text-gray-500">
-            Create a reusable stock list, assign quantities to each nest, and review estimated cost before finance submission.
-          </p>
+    <div className="mx-auto max-w-7xl space-y-6 pb-8">
+      <header className="relative overflow-hidden rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-100 via-white to-white p-6 shadow-sm sm:p-8">
+        <div className="absolute -right-12 -top-16 h-48 w-48 rounded-full bg-violet-100/80 blur-2xl" />
+        <div className="relative flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-violet-800">
+              Procurement workspace
+            </p>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
+              Stock plan
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+              Create a reusable stock list, assign quantities to each nest, and
+              review estimated costs before finance submission.
+            </p>
+          </div>
+          <span className="w-fit rounded-full border border-violet-200 bg-white px-3.5 py-2 text-xs font-bold uppercase tracking-wide text-violet-900 shadow-sm">
+            {status.replaceAll("_", " ")}
+          </span>
         </div>
-        <span className="w-fit rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-amber-800">
-          {status.replaceAll("_", " ")}
-        </span>
       </header>
 
       {error && (
         <p
           role="alert"
-          className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+          className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 shadow-sm"
         >
           {error}
         </p>
@@ -353,33 +359,46 @@ export default function StockPlanBuilderPage() {
       {notice && (
         <p
           role="status"
-          className="rounded-lg border border-emerald-200 bg-white p-3 text-sm text-emerald-800"
+          className="rounded-xl border border-violet-200 bg-violet-50 p-4 text-sm font-medium text-violet-950 shadow-sm"
         >
           {notice}
         </p>
       )}
 
       <section className="grid gap-5 lg:grid-cols-2">
-        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">Plan setup</p>
-          <h2 className="mt-1 text-lg font-bold text-gray-950">Plan details</h2>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="mb-5">
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-violet-800">
+              Plan setup
+            </p>
+            <h2 className="mt-1 text-lg font-bold text-slate-950">
+              Plan details
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Set the country, schedule, and name for this reusable plan.
+            </p>
+          </div>
 
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2">
             <label className="sm:col-span-2">
-              <span className="mb-1 block text-xs font-semibold">Plan name</span>
+              <span className="mb-1.5 block text-xs font-semibold text-slate-700">
+                Plan name
+              </span>
               <input
                 value={planName}
                 onChange={(event) => setPlanName(event.target.value)}
-                className="h-11 w-full rounded-xl border border-gray-300 px-3 text-sm text-gray-900 bg-white placeholder:text-gray-500 focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
+                className={inputClass}
               />
             </label>
 
             <label>
-              <span className="mb-1 block text-xs font-semibold">Country</span>
+              <span className="mb-1.5 block text-xs font-semibold text-slate-700">
+                Country
+              </span>
               <select
                 value={country}
                 onChange={(event) => void load(event.target.value)}
-                className="h-11 w-full rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
+                className={selectClass}
               >
                 {(data?.countries ?? []).map((value) => (
                   <option key={value} value={value}>
@@ -390,7 +409,9 @@ export default function StockPlanBuilderPage() {
             </label>
 
             <label>
-              <span className="mb-1 block text-xs font-semibold">Frequency</span>
+              <span className="mb-1.5 block text-xs font-semibold text-slate-700">
+                Frequency
+              </span>
               <select
                 value={frequency}
                 onChange={(event) =>
@@ -398,7 +419,7 @@ export default function StockPlanBuilderPage() {
                     event.target.value as "monthly" | "quarterly",
                   )
                 }
-                className="h-11 w-full rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
+                className={selectClass}
               >
                 <option value="quarterly">Quarterly</option>
                 <option value="monthly">Monthly</option>
@@ -406,31 +427,38 @@ export default function StockPlanBuilderPage() {
             </label>
 
             <label>
-              <span className="mb-1 block text-xs font-semibold">Period</span>
+              <span className="mb-1.5 block text-xs font-semibold text-slate-700">
+                Period
+              </span>
               <input
                 value={period}
                 onChange={(event) => setPeriod(event.target.value)}
                 placeholder={currentQuarter()}
-                className="h-11 w-full rounded-xl border border-gray-300 px-3 text-sm text-gray-900 bg-white placeholder:text-gray-500 focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
+                className={inputClass}
               />
             </label>
 
             <label>
-              <span className="mb-1 block text-xs font-semibold">Currency</span>
+              <span className="mb-1.5 block text-xs font-semibold text-slate-700">
+                Currency
+              </span>
               <input
                 value={currency}
                 readOnly
-                className="h-11 w-full rounded-xl border border-gray-300 bg-gray-50 px-3 text-sm text-gray-900 placeholder:text-gray-500 focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
+                className={`${inputClass} cursor-not-allowed bg-slate-50 text-slate-600`}
               />
             </label>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="font-semibold text-gray-900">Nests included</h2>
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-violet-800">
+                Distribution scope
+              </p>
+              <h2 className="mt-1 font-bold text-slate-950">Nests included</h2>
+              <p className="mt-1 text-sm text-slate-600">
                 Only nests within your access are listed.
               </p>
             </div>
@@ -443,108 +471,141 @@ export default function StockPlanBuilderPage() {
                     : nests.map((nest) => nest.id),
                 )
               }
-              className="text-xs font-semibold text-emerald-700"
+              className="rounded-lg px-2 py-1 text-xs font-bold text-violet-800 transition hover:bg-violet-50 hover:text-violet-950"
             >
               {activeNestIds.length === nests.length ? "Clear all" : "Select all"}
             </button>
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3">
             {nests.map((nest) => (
               <label
                 key={nest.id}
-                className="flex cursor-pointer items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm font-semibold text-gray-800 transition hover:border-emerald-300 hover:bg-emerald-50 has-[:checked]:border-emerald-500 has-[:checked]:bg-emerald-50"
+                className="flex cursor-pointer items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-800 transition hover:border-violet-300 hover:bg-violet-50 has-[:checked]:border-violet-400 has-[:checked]:bg-violet-100 has-[:checked]:text-violet-950"
               >
                 <input
                   type="checkbox"
                   checked={activeNestIds.includes(nest.id)}
                   onChange={() => toggleNest(nest.id)}
-                  className="accent-emerald-700"
+                  className="h-4 w-4 accent-violet-800"
                 />
-                {nest.code}
+                <span>{nest.code}</span>
               </label>
             ))}
           </div>
+          <p className="mt-4 text-xs text-slate-500">
+            {activeNestIds.length} of {nests.length} nests selected
+          </p>
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-lg shadow-emerald-950/5 ring-1 ring-emerald-50">
-        <div className="border-b border-emerald-100 bg-gradient-to-r from-emerald-50/90 to-white p-6">
-          <div className="flex flex-col justify-between gap-3 sm:flex-row">
+      <section className="overflow-hidden rounded-2xl border border-violet-200 bg-white shadow-sm">
+        <div className="border-b border-violet-100 bg-gradient-to-r from-violet-50 via-white to-white p-5 sm:p-6">
+          <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">Master catalogue</p>
-              <h2 className="mt-1 text-xl font-bold tracking-tight text-gray-950">Build your nest list</h2>
-              <p className="mt-1 text-sm text-gray-500">
-                Select items from the master catalogue, then set a quantity for every selected nest.
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-violet-800">
+                Master catalogue
+              </p>
+              <h2 className="mt-1 text-xl font-bold tracking-tight text-slate-950">
+                Build your nest list
+              </h2>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
+                Select items from the master catalogue, then set a quantity for
+                every selected nest.
               </p>
             </div>
-            <input
-              type="search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search catalog"
-              className="h-11 rounded-xl border border-gray-300 px-3 text-sm text-gray-900 bg-white placeholder:text-gray-500 focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
-            />
+            <label className="w-full lg:max-w-sm">
+              <span className="sr-only">Search catalog</span>
+              <input
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search catalog by name, code, or team"
+                className={inputClass}
+              />
+            </label>
           </div>
 
-          <div className="mt-5 grid gap-3 rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm sm:grid-cols-3">
-            <select
-              value={teamFilter}
-              onChange={(event) => {
-                setTeamFilter(event.target.value);
-                setCategoryFilter("");
-              }}
-              className="h-11 rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
-            >
-              <option value="">All teams</option>
-              {teams.map((team) => (
-                <option key={team} value={team}>
-                  {teamLabels[team]}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={categoryFilter}
-              onChange={(event) => setCategoryFilter(event.target.value)}
-              className="h-11 rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
-            >
-              <option value="">All categories</option>
-              {categoryOptions.map((category) => (
-                <option key={category} value={category}>
-                  {category}
-                </option>
-              ))}
-            </select>
-
-            <div className="flex gap-2">
+          <div className="mt-5 grid gap-3 rounded-2xl border border-violet-100 bg-white p-4 shadow-sm sm:grid-cols-3">
+            <label>
+              <span className="mb-1.5 block text-xs font-semibold text-slate-700">
+                Team
+              </span>
               <select
-                value={selectedItemId}
-                onChange={(event) => setSelectedItemId(event.target.value)}
-                className="h-10 min-w-0 flex-1 rounded-xl border border-gray-300 bg-white px-3 text-sm font-medium text-gray-950 shadow-sm placeholder:text-gray-500 focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
+                value={teamFilter}
+                onChange={(event) => {
+                  setTeamFilter(event.target.value);
+                  setCategoryFilter("");
+                }}
+                className={selectClass}
               >
-                <option value="">Choose an item</option>
-                {availableCatalog.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name} · {teamLabels[item.team]}
+                <option value="">All teams</option>
+                {teams.map((team) => (
+                  <option key={team} value={team}>
+                    {teamLabels[team]}
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
-                disabled={!selectedItemId}
-                onClick={addItem}
-                className="rounded-xl bg-emerald-700 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-200 disabled:cursor-not-allowed disabled:bg-gray-300"
+            </label>
+
+            <label>
+              <span className="mb-1.5 block text-xs font-semibold text-slate-700">
+                Category
+              </span>
+              <select
+                value={categoryFilter}
+                onChange={(event) => setCategoryFilter(event.target.value)}
+                className={selectClass}
               >
-                Add
-              </button>
+                <option value="">All categories</option>
+                {categoryOptions.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div>
+              <label
+                htmlFor="catalog-item"
+                className="mb-1.5 block text-xs font-semibold text-slate-700"
+              >
+                Add an item
+              </label>
+              <div className="flex gap-2">
+                <select
+                  id="catalog-item"
+                  value={selectedItemId}
+                  onChange={(event) => setSelectedItemId(event.target.value)}
+                  className="h-11 min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3 text-sm font-medium text-slate-950 shadow-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
+                >
+                  <option value="">Choose an item</option>
+                  {availableCatalog.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} · {teamLabels[item.team]}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={!selectedItemId}
+                  onClick={addItem}
+                  className="rounded-xl bg-violet-800 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-violet-900 focus:outline-none focus:ring-4 focus:ring-violet-200 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  Add
+                </button>
+              </div>
             </div>
           </div>
+          <p className="mt-3 text-xs text-slate-500">
+            {availableCatalog.length} catalog item(s) available to add
+          </p>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px] text-left text-sm">
-            <thead className="bg-gray-50 text-xs font-bold uppercase tracking-wide text-gray-600">
+            <thead className="bg-violet-50/70 text-xs font-bold uppercase tracking-wide text-slate-600">
               <tr>
                 <th className="px-4 py-3">Item</th>
                 <th className="px-4 py-3">Team / category</th>
@@ -556,7 +617,9 @@ export default function StockPlanBuilderPage() {
                   </th>
                 ))}
                 <th className="px-4 py-3">Line total</th>
-                <th />
+                <th className="px-4 py-3">
+                  <span className="sr-only">Remove item</span>
+                </th>
               </tr>
             </thead>
 
@@ -569,21 +632,26 @@ export default function StockPlanBuilderPage() {
                 );
 
                 return (
-                  <tr key={item.id} className="border-t border-gray-100 transition-colors hover:bg-emerald-50/40">
+                  <tr
+                    key={item.id}
+                    className="border-t border-slate-100 transition-colors hover:bg-violet-50/40"
+                  >
                     <td className="px-4 py-4">
-                      <p className="font-medium">{item.name}</p>
-                      <p className="mt-1 font-mono text-xs text-gray-500">
+                      <p className="font-semibold text-slate-950">
+                        {item.name}
+                      </p>
+                      <p className="mt-1 font-mono text-xs text-slate-500">
                         {item.code}
                       </p>
                     </td>
-                    <td className="px-4 py-4">
+                    <td className="px-4 py-4 text-slate-800">
                       {teamLabels[item.team]}
-                      <p className="mt-1 text-xs text-gray-500">
+                      <p className="mt-1 text-xs text-slate-500">
                         {item.category ?? "Unassigned"}
                       </p>
                     </td>
-                    <td className="px-4 py-4">{item.uom}</td>
-                    <td className="px-4 py-4">
+                    <td className="px-4 py-4 text-slate-700">{item.uom}</td>
+                    <td className="px-4 py-4 font-medium text-slate-800">
                       {item.unitCost === null
                         ? "Price not set"
                         : formatMoney(item.unitCost, currency)}
@@ -604,12 +672,12 @@ export default function StockPlanBuilderPage() {
                             )
                           }
                           aria-label={`${item.name} quantity for ${nest.code}`}
-                          className="h-10 w-24 rounded-lg border border-gray-300 bg-white px-3 text-sm font-semibold text-gray-950 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
+                          className="h-10 w-24 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-950 shadow-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
                         />
                       </td>
                     ))}
 
-                    <td className="px-4 py-4 font-semibold">
+                    <td className="px-4 py-4 font-bold text-slate-950">
                       {formatMoney(quantity * (item.unitCost ?? 0), currency)}
                     </td>
                     <td className="px-4 py-4">
@@ -617,7 +685,7 @@ export default function StockPlanBuilderPage() {
                         type="button"
                         onClick={() => removeItem(item.id)}
                         aria-label={`Remove ${item.name}`}
-                        className="text-lg text-gray-400 hover:text-red-700"
+                        className="flex h-9 w-9 items-center justify-center rounded-lg text-xl text-slate-400 transition hover:bg-red-50 hover:text-red-700"
                       >
                         ×
                       </button>
@@ -630,9 +698,18 @@ export default function StockPlanBuilderPage() {
                 <tr>
                   <td
                     colSpan={6 + selectedNests.length}
-                    className="px-4 py-10 text-center text-gray-500"
+                    className="px-4 py-12 text-center"
                   >
-                    Add items from the catalog to build the plan.
+                    <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-100 text-xl text-violet-900">
+                      +
+                    </span>
+                    <p className="mt-3 text-sm font-semibold text-slate-900">
+                      No items in this plan yet
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Choose items from the master catalogue above to build the
+                      plan.
+                    </p>
                   </td>
                 </tr>
               )}
@@ -640,40 +717,74 @@ export default function StockPlanBuilderPage() {
           </table>
         </div>
 
-        <p className="border-t px-5 py-3 text-xs text-gray-500">
+        <p className="border-t border-slate-200 bg-slate-50/70 px-5 py-3 text-xs leading-5 text-slate-600">
           Blank quantities exclude an item from that nest. Plan quantities do
           not change current stock.
         </p>
       </section>
 
       <section className="grid gap-5 lg:grid-cols-2">
-        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="font-semibold">Plan cost by team</h2>
-          <div className="mt-4 space-y-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-100 font-bold text-violet-900">
+              ∑
+            </span>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-violet-800">
+                Cost breakdown
+              </p>
+              <h2 className="mt-1 font-bold text-slate-950">
+                Plan cost by team
+              </h2>
+            </div>
+          </div>
+          <div className="mt-5 space-y-3">
             {teamTotals.map(({ team, total }) => (
-              <div key={team} className="flex justify-between text-sm">
+              <div
+                key={team}
+                className="flex justify-between gap-4 text-sm text-slate-700"
+              >
                 <span>{teamLabels[team]}</span>
-                <strong>{formatMoney(total, currency)}</strong>
+                <strong className="text-slate-950">
+                  {formatMoney(total, currency)}
+                </strong>
               </div>
             ))}
-            <div className="flex justify-between border-t pt-3 font-bold">
+            <div className="flex justify-between gap-4 border-t border-violet-100 pt-3 font-bold text-slate-950">
               <span>Total plan cost</span>
               <span>{formatMoney(planTotal, currency)}</span>
             </div>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="font-semibold">Plan cost by nest</h2>
-          <div className="mt-4 space-y-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-100 font-bold text-indigo-900">
+              ⌖
+            </span>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-violet-800">
+                Distribution breakdown
+              </p>
+              <h2 className="mt-1 font-bold text-slate-950">
+                Plan cost by nest
+              </h2>
+            </div>
+          </div>
+          <div className="mt-5 space-y-3">
             {nestTotals.map(({ nest, total }) => (
-              <div key={nest.id} className="flex justify-between text-sm">
+              <div
+                key={nest.id}
+                className="flex justify-between gap-4 text-sm text-slate-700"
+              >
                 <span>{nest.code}</span>
-                <strong>{formatMoney(total, currency)}</strong>
+                <strong className="text-slate-950">
+                  {formatMoney(total, currency)}
+                </strong>
               </div>
             ))}
             {nestTotals.length === 0 && (
-              <p className="text-sm text-amber-800">
+              <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
                 Select at least one nest to calculate the plan.
               </p>
             )}
@@ -681,25 +792,28 @@ export default function StockPlanBuilderPage() {
         </div>
       </section>
 
-      <section className="flex flex-col justify-between gap-4 rounded-2xl border border-emerald-300 bg-gradient-to-r from-emerald-50 to-white p-6 shadow-md sm:flex-row sm:items-center">
+      <section className="flex flex-col justify-between gap-5 rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 to-white p-5 shadow-sm sm:flex-row sm:items-center sm:p-6">
         <div>
-          <h2 className="font-semibold">Review and submit</h2>
-          <p className="mt-1 text-sm text-gray-500">
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-violet-800">
+            Ready for review
+          </p>
+          <h2 className="mt-1 font-bold text-slate-950">Review and submit</h2>
+          <p className="mt-1 text-sm text-slate-700">
             {planName || "Unnamed plan"} · {period || "No period"} ·{" "}
             {activeNestIds.length} nests · {formatMoney(planTotal, currency)}
           </p>
-          <p className="mt-1 text-xs text-gray-400">
+          <p className="mt-1 text-xs text-slate-500">
             {planId ? `Saved plan ${planId}` : "Not saved yet"} ·{" "}
             {status.replaceAll("_", " ")}
           </p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <button
             type="button"
             disabled={saving || loading}
             onClick={() => void save("draft")}
-            className="h-11 rounded-xl border border-gray-300 bg-white px-5 text-sm font-bold text-gray-800 shadow-sm transition hover:bg-gray-50 disabled:opacity-50"
+            className="h-11 rounded-xl border border-slate-300 bg-white px-5 text-sm font-bold text-slate-800 shadow-sm transition hover:border-violet-300 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving ? "Saving…" : "Save draft"}
           </button>
@@ -712,7 +826,7 @@ export default function StockPlanBuilderPage() {
               planItems.length === 0
             }
             onClick={() => void save("submit")}
-            className="h-11 rounded-xl bg-emerald-700 px-5 text-sm font-bold text-white shadow-md transition hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-200 disabled:cursor-not-allowed disabled:bg-gray-300"
+            className="h-11 rounded-xl bg-violet-800 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-violet-900 focus:outline-none focus:ring-4 focus:ring-violet-200 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             {saving ? "Saving…" : "Submit for finance review"}
           </button>

@@ -1,6 +1,6 @@
 "use client";
-import Link from "next/link";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type Team = "flight" | "fulfilment" | "facilities";
@@ -82,9 +82,9 @@ function formatUpdatedAt(value: string | null) {
 }
 
 function teamStyle(team: Team) {
-  if (team === "flight") return "bg-blue-50 text-blue-700";
-  if (team === "fulfilment") return "bg-violet-50 text-violet-700";
-  return "bg-amber-50 text-amber-700";
+  if (team === "flight") return "bg-blue-50 text-blue-800";
+  if (team === "fulfilment") return "bg-violet-100 text-violet-900";
+  return "bg-amber-50 text-amber-900";
 }
 
 function teamIcon(team: Team) {
@@ -289,116 +289,119 @@ export default function NestLeadDashboardPage() {
       : allowedTeams.map((team) => teamLabels[team]).join(" · ");
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-900 sm:px-6 lg:px-10">
+    <main className="min-h-screen bg-slate-50 px-4 py-7 text-slate-900 sm:px-6 lg:px-10">
       <div className="mx-auto max-w-7xl">
-        <header className="flex flex-col justify-between gap-5 rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-white p-6 shadow-sm sm:flex-row sm:items-end">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">
-              Nest lead workspace
-            </p>
-
-            <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">
-              Nest inventory overview
-            </h1>
-
-            <p className="mt-2 max-w-2xl text-sm text-slate-500">
-              Review the catalog and stock recorded at your assigned nest.
-            </p>
-          </div>
-
-          {availableNests.length > 1 ? (
-            <label className="w-full max-w-xs">
-              <span className="mb-1 block text-xs font-semibold text-slate-500">
-                Assigned nest
-              </span>
-              <select
-                value={selectedNestId}
-                onChange={(event) => {
-                  setSelectedNestId(event.target.value);
-                  setTeamFilter("all");
-                  setCategoryFilter("");
-                  setReviewError("");
-                  setReviewWarning("");
-                  setReviewMessage("");
-                }}
-                className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
-              >
-                {availableNests.map((nest) => (
-                  <option key={nest.id} value={nest.id}>
-                    {nest.code} · {nest.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <div className="inline-flex w-fit items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              <span className="text-slate-500">Assigned nest</span>
-              <span className="rounded bg-emerald-50 px-2 py-1 font-semibold text-emerald-800">
-                {assignedNest?.code ?? (loading ? "Loading…" : "—")}
-              </span>
+        <header className="relative overflow-hidden rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-100 via-white to-white p-6 shadow-sm sm:p-8">
+          <div className="absolute -right-12 -top-16 h-48 w-48 rounded-full bg-violet-100/80 blur-2xl" />
+          <div className="relative flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-violet-800">
+                Nest Lead workspace
+              </p>
+              <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
+                Nest inventory overview
+              </h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+                Review team stock, explore the nest catalog, and manage
+                Quartermaster access requests.
+              </p>
             </div>
-          )}
+
+            {availableNests.length > 1 ? (
+              <label className="relative w-full sm:max-w-xs">
+                <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-600">
+                  Assigned nest
+                </span>
+                <select
+                  value={selectedNestId}
+                  onChange={(event) => {
+                    setSelectedNestId(event.target.value);
+                    setTeamFilter("all");
+                    setCategoryFilter("");
+                    setReviewError("");
+                    setReviewWarning("");
+                    setReviewMessage("");
+                  }}
+                  className="h-11 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm font-semibold text-slate-950 shadow-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
+                >
+                  {availableNests.map((nest) => (
+                    <option key={nest.id} value={nest.id}>
+                      {nest.code} · {nest.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <div className="inline-flex w-fit items-center gap-2.5 rounded-xl border border-violet-200 bg-white px-3.5 py-3 shadow-sm">
+                <span className="h-2.5 w-2.5 rounded-full bg-violet-700 ring-4 ring-violet-100" />
+                <span className="text-xs font-medium text-slate-600">
+                  Assigned nest
+                </span>
+                <span className="rounded-lg bg-violet-100 px-2.5 py-1.5 text-sm font-bold text-violet-950">
+                  {assignedNest?.code ?? (loading ? "Loading…" : "—")}
+                </span>
+              </div>
+            )}
+          </div>
         </header>
 
-
         <nav
-  aria-label="Nest lead dashboard views"
-  className="mt-4 flex flex-wrap gap-2"
->
-  <Link
-    href="/lead/dashboard"
-    aria-current="page"
-    className="rounded-xl bg-violet-100 px-4 py-2.5 text-sm font-bold text-violet-900"
-  >
-    Nest inventory
-  </Link>
-  <Link
-    href="/expenses/dashboard"
-    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:border-violet-300 hover:text-violet-800"
-  >
-    Quarterly expenses
-  </Link>
-</nav>
+          aria-label="Nest lead dashboard views"
+          className="mt-4 flex flex-wrap gap-2"
+        >
+          <Link
+            href="/lead/dashboard"
+            aria-current="page"
+            className="rounded-xl border border-violet-200 bg-violet-100 px-4 py-2.5 text-sm font-bold text-violet-950 shadow-sm"
+          >
+            Nest inventory
+          </Link>
+          <Link
+            href="/expenses/dashboard"
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-900"
+          >
+            Quarterly expenses
+          </Link>
+        </nav>
 
         {error && (
           <div
             role="alert"
-            className="mt-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+            className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 shadow-sm"
           >
             {error}
           </div>
         )}
 
-        <section className="mt-7 flex flex-col gap-4 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-white p-5 shadow-sm sm:flex-row sm:items-center">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-2xl text-emerald-700">
+        <section className="mt-6 flex flex-col gap-4 rounded-2xl border border-violet-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:p-6">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-2xl text-violet-900">
             ⌖
           </div>
 
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+            <p className="text-xs font-bold uppercase tracking-wide text-violet-800">
               Assigned location
             </p>
-            <h2 className="mt-1 text-lg font-bold">
+            <h2 className="mt-1 text-lg font-bold text-slate-950">
               {assignedNest
                 ? `${assignedNest.code} · ${assignedNest.name}`
                 : loading
                   ? "Loading assigned nest…"
                   : "No assigned nest"}
             </h2>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-sm text-slate-600">
               {assignedNest?.countryName ?? ""}
             </p>
           </div>
 
           <div className="sm:ml-auto sm:text-right">
-            <p className="text-xs text-slate-500">Teams covered</p>
-            <p className="mt-1 text-sm font-semibold text-slate-800">
+            <p className="text-xs font-medium text-slate-500">Teams covered</p>
+            <p className="mt-1 text-sm font-semibold text-slate-900">
               {assignedTeamLabel || "—"}
             </p>
           </div>
 
-          <span className="w-fit rounded border border-emerald-100 bg-white px-2 py-1 text-[10px] font-bold tracking-wide text-emerald-800 sm:ml-3">
+          <span className="w-fit rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-[10px] font-bold tracking-wide text-violet-900 sm:ml-3">
             LIVE SUPABASE DATA
           </span>
         </section>
@@ -412,7 +415,7 @@ export default function NestLeadDashboardPage() {
             value={loading ? "…" : items.length}
             detail="Active items available to your team access"
             icon="▤"
-            iconClass="bg-emerald-50 text-emerald-700"
+            iconClass="bg-violet-100 text-violet-900"
           />
 
           <SummaryCard
@@ -420,7 +423,7 @@ export default function NestLeadDashboardPage() {
             value={loading ? "…" : trackedCount}
             detail={`Items with a stock record at ${assignedNest?.code ?? "this nest"}`}
             icon="✓"
-            iconClass="bg-blue-50 text-blue-700"
+            iconClass="bg-indigo-100 text-indigo-900"
           />
 
           <SummaryCard
@@ -428,29 +431,29 @@ export default function NestLeadDashboardPage() {
             value={loading ? "…" : items.length - trackedCount}
             detail="Each nest can track the items it needs"
             icon="—"
-            iconClass="bg-amber-50 text-amber-700"
+            iconClass="bg-amber-100 text-amber-900"
           />
         </section>
 
         <section
           aria-label="Access requests"
-          className="mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md"
+          className="mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
         >
-          <div className="flex flex-col gap-2 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 border-b border-slate-200 bg-gradient-to-r from-violet-50/80 to-white p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+              <p className="text-xs font-bold uppercase tracking-wide text-violet-800">
                 Access management
               </p>
-              <h2 className="mt-1 text-lg font-semibold">
+              <h2 className="mt-1 text-lg font-bold text-slate-950">
                 Pending Quartermaster requests
               </h2>
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-slate-600">
                 Requests for {assignedNest?.code ?? "the selected nest"} appear
                 here for review.
               </p>
             </div>
 
-            <span className="w-fit rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-800">
+            <span className="w-fit rounded-full border border-violet-200 bg-white px-3 py-1.5 text-sm font-bold text-violet-900 shadow-sm">
               {pendingAccessRequests.length} pending
             </span>
           </div>
@@ -467,7 +470,7 @@ export default function NestLeadDashboardPage() {
           {reviewMessage && (
             <p
               role="status"
-              className="border-b border-emerald-100 bg-emerald-50 px-5 py-3 text-sm text-emerald-800"
+              className="border-b border-violet-100 bg-violet-50 px-5 py-3 text-sm font-medium text-violet-950"
             >
               {reviewMessage}
             </p>
@@ -488,10 +491,13 @@ export default function NestLeadDashboardPage() {
             </div>
           ) : pendingAccessRequests.length === 0 ? (
             <div className="px-5 py-10 text-center">
-              <p className="text-sm font-medium text-slate-700">
+              <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-violet-100 text-lg font-bold text-violet-900">
+                ✓
+              </span>
+              <p className="mt-3 text-sm font-semibold text-slate-900">
                 No pending requests for this nest.
               </p>
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-slate-600">
                 New Quartermaster requests will appear here.
               </p>
             </div>
@@ -502,11 +508,11 @@ export default function NestLeadDashboardPage() {
                   reviewingRequestId === accessRequest.id;
 
                 return (
-                  <li key={accessRequest.id} className="p-5">
+                  <li key={accessRequest.id} className="p-5 sm:p-6">
                     <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="font-semibold text-slate-900">
+                          <h3 className="font-bold text-slate-950">
                             {accessRequest.requesterName || "Name not provided"}
                           </h3>
 
@@ -519,7 +525,7 @@ export default function NestLeadDashboardPage() {
                               ] as const
                             ).includes(accessRequest.team as Team) && (
                               <span
-                                className={`rounded-full px-2.5 py-1 text-xs font-medium ${teamStyle(
+                                className={`rounded-full px-2.5 py-1 text-xs font-semibold ${teamStyle(
                                   accessRequest.team as Team,
                                 )}`}
                               >
@@ -532,11 +538,16 @@ export default function NestLeadDashboardPage() {
                           {accessRequest.requesterEmail}
                         </p>
 
-                        <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
-                          {accessRequest.reason}
-                        </p>
+                        <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-4">
+                          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                            Reason for request
+                          </p>
+                          <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                            {accessRequest.reason}
+                          </p>
+                        </div>
 
-                        <p className="mt-3 text-xs text-slate-400">
+                        <p className="mt-3 text-xs text-slate-500">
                           Submitted {formatUpdatedAt(accessRequest.createdAt)}
                         </p>
                       </div>
@@ -559,7 +570,7 @@ export default function NestLeadDashboardPage() {
                           onClick={() =>
                             void handleReview(accessRequest.id, "approved")
                           }
-                          className="min-h-11 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="min-h-11 rounded-xl bg-violet-800 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-violet-900 focus:outline-none focus:ring-4 focus:ring-violet-200 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {isReviewing ? "Saving…" : "Approve"}
                         </button>
@@ -575,14 +586,14 @@ export default function NestLeadDashboardPage() {
         <section className="mt-9">
           <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-violet-800">
                 Inventory overview
               </p>
               <h2 className="mt-1 text-xl font-bold tracking-tight text-slate-950">
                 Inventory by team
               </h2>
             </div>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="max-w-xl text-sm leading-5 text-slate-600">
               Choose a team to review its catalog and recorded stock at this
               nest.
             </p>
@@ -604,20 +615,22 @@ export default function NestLeadDashboardPage() {
                     aria-pressed={selected}
                     className={`rounded-2xl border bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
                       selected
-                        ? "border-emerald-500 bg-emerald-50/40 ring-2 ring-emerald-100"
-                        : "border-slate-200 hover:border-emerald-300"
+                        ? "border-violet-400 bg-violet-50/70 ring-2 ring-violet-100"
+                        : "border-slate-200 hover:border-violet-300"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <h3 className="font-semibold">{teamLabels[team]}</h3>
-                        <p className="mt-1 text-xs text-slate-500">
+                        <h3 className="font-bold text-slate-950">
+                          {teamLabels[team]}
+                        </h3>
+                        <p className="mt-1 text-xs text-slate-600">
                           {catalogCount} catalog{" "}
                           {catalogCount === 1 ? "item" : "items"}
                         </p>
                       </div>
                       <span
-                        className={`flex h-10 w-10 items-center justify-center rounded-lg text-lg ${teamStyle(
+                        className={`flex h-10 w-10 items-center justify-center rounded-xl text-lg ${teamStyle(
                           team,
                         )}`}
                       >
@@ -626,15 +639,15 @@ export default function NestLeadDashboardPage() {
                     </div>
 
                     <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
-                      <span className="text-xs text-slate-500">
+                      <span className="text-xs text-slate-600">
                         Tracked at {assignedNest?.code ?? "nest"}
                       </span>
-                      <span className="text-sm font-semibold text-slate-800">
+                      <span className="text-sm font-bold text-slate-900">
                         {teamTrackedCount} / {catalogCount}
                       </span>
                     </div>
 
-                    <span className="mt-3 block text-xs font-semibold text-emerald-700">
+                    <span className="mt-3 block text-xs font-bold text-violet-800">
                       {selected
                         ? "Showing this team"
                         : `View ${teamLabels[team]}`}
@@ -646,30 +659,30 @@ export default function NestLeadDashboardPage() {
           </div>
         </section>
 
-        <section className="mt-6 overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-lg shadow-emerald-950/5 ring-1 ring-emerald-50">
-          <div className="border-b border-emerald-100 bg-gradient-to-r from-emerald-50/90 to-white p-5 sm:p-6">
+        <section className="mt-6 overflow-hidden rounded-2xl border border-violet-200 bg-white shadow-sm">
+          <div className="border-b border-violet-100 bg-gradient-to-r from-violet-50 via-white to-white p-5 sm:p-6">
             <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-violet-800">
                   {assignedNest?.code ?? "Assigned nest"}
                   {teamFilter !== "all" ? ` · ${teamLabels[teamFilter]}` : ""}
                 </p>
                 <h2 className="mt-1 text-xl font-bold tracking-tight text-slate-950">
                   Catalog and nest stock
                 </h2>
-                <p className="mt-1 max-w-2xl text-sm text-slate-600">
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
                   Review stock levels and catalog details for this nest. Items
                   with no stock record remain visible.
                 </p>
               </div>
-              <span className="w-fit rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-sm">
+              <span className="w-fit rounded-full border border-violet-200 bg-white px-3 py-1.5 text-xs font-bold text-violet-900 shadow-sm">
                 {loading ? "Loading…" : `${filteredItems.length} items`}
               </span>
             </div>
 
-            <div className="mt-5 grid gap-3 rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm md:grid-cols-[minmax(220px,1fr)_200px_220px]">
-              <label className="flex h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-slate-500 shadow-sm focus-within:border-emerald-600 focus-within:ring-4 focus-within:ring-emerald-100">
-                <span aria-hidden="true" className="text-lg">
+            <div className="mt-5 grid gap-3 rounded-2xl border border-violet-100 bg-white p-4 shadow-sm md:grid-cols-[minmax(220px,1fr)_200px_220px]">
+              <label className="flex h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-slate-500 shadow-sm transition focus-within:border-violet-500 focus-within:ring-4 focus-within:ring-violet-100">
+                <span aria-hidden="true" className="text-lg text-violet-800">
                   ⌕
                 </span>
                 <input
@@ -678,7 +691,7 @@ export default function NestLeadDashboardPage() {
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search item, code, team..."
                   aria-label="Search the catalog"
-                  className="min-w-0 flex-1 border-0 bg-transparent text-sm font-medium text-slate-950 outline-none placeholder:text-slate-500"
+                  className="min-w-0 flex-1 border-0 bg-transparent text-sm font-medium text-slate-950 outline-none placeholder:text-slate-400"
                 />
               </label>
 
@@ -690,7 +703,7 @@ export default function NestLeadDashboardPage() {
                     setTeamFilter(event.target.value as TeamFilter);
                     setCategoryFilter("");
                   }}
-                  className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-medium text-slate-950 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
+                  className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-medium text-slate-950 shadow-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
                 >
                   <option value="all">All assigned teams</option>
                   {allowedTeams.map((team) => (
@@ -706,7 +719,7 @@ export default function NestLeadDashboardPage() {
                 <select
                   value={categoryFilter}
                   onChange={(event) => setCategoryFilter(event.target.value)}
-                  className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-medium text-slate-950 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-4 focus:ring-emerald-100"
+                  className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-medium text-slate-950 shadow-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
                 >
                   <option value="">All categories</option>
                   {categoryOptions.map((category) => (
@@ -720,15 +733,18 @@ export default function NestLeadDashboardPage() {
           </div>
 
           {loading && !dashboard ? (
-            <div className="px-5 py-12 text-center text-sm font-medium text-slate-500">
+            <div className="px-5 py-12 text-center text-sm font-medium text-slate-600">
               Loading nest inventory…
             </div>
           ) : filteredItems.length === 0 ? (
             <div className="m-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-5 py-12 text-center sm:m-5">
-              <p className="text-base font-semibold text-slate-800">
+              <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-100 text-xl text-violet-900">
+                ⌕
+              </span>
+              <p className="mt-3 text-base font-semibold text-slate-900">
                 No catalog items found
               </p>
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-slate-600">
                 {error
                   ? "Dashboard data could not be loaded."
                   : "Try another search or clear one of the filters."}
@@ -739,15 +755,15 @@ export default function NestLeadDashboardPage() {
               {pageItems.map((item) => {
                 const hasStock = item.stockQuantity !== null;
                 const stockClass = !hasStock
-                  ? "bg-slate-100 text-slate-700"
+                  ? "border-slate-200 bg-slate-100 text-slate-700"
                   : item.stockQuantity! <= 0
-                    ? "bg-rose-50 text-rose-700"
-                    : "bg-emerald-50 text-emerald-800";
+                    ? "border-rose-200 bg-rose-50 text-rose-800"
+                    : "border-violet-200 bg-violet-50 text-violet-950";
 
                 return (
                   <article
                     key={item.id}
-                    className="rounded-2xl border border-slate-200 border-l-4 border-l-emerald-500 bg-white p-4 shadow-sm transition hover:border-emerald-300 hover:shadow-md sm:p-5"
+                    className="rounded-2xl border border-slate-200 border-l-4 border-l-violet-500 bg-white p-4 shadow-sm transition hover:border-violet-300 hover:shadow-md sm:p-5"
                   >
                     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(220px,0.55fr)] lg:items-center">
                       <div className="min-w-0">
@@ -761,7 +777,7 @@ export default function NestLeadDashboardPage() {
                             </p>
                           </div>
                           <span
-                            className={`rounded-full px-3 py-1.5 text-xs font-bold ${stockClass}`}
+                            className={`rounded-full border px-3 py-1.5 text-xs font-bold ${stockClass}`}
                           >
                             {hasStock
                               ? item.stockQuantity! <= 0
@@ -780,8 +796,8 @@ export default function NestLeadDashboardPage() {
                           <span
                             className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold ${
                               item.category
-                                ? "bg-violet-50 text-violet-800"
-                                : "bg-amber-50 text-amber-800"
+                                ? "bg-violet-50 text-violet-900"
+                                : "bg-amber-50 text-amber-900"
                             }`}
                           >
                             {item.category ?? "Unassigned"}
@@ -792,16 +808,16 @@ export default function NestLeadDashboardPage() {
                         </div>
                       </div>
 
-                      <div className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <div className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
                           Stock record
                         </p>
-                        <p className="text-sm font-bold text-slate-900">
+                        <p className="text-lg font-bold text-slate-950">
                           {hasStock
                             ? `${item.stockQuantity!.toLocaleString()} ${item.stockUnit ?? item.uom}`
                             : "No balance recorded"}
                         </p>
-                        <p className="text-xs text-slate-500">
+                        <p className="border-t border-slate-200 pt-2 text-xs text-slate-600">
                           Last updated {formatUpdatedAt(item.stockUpdatedAt)}
                         </p>
                       </div>
@@ -819,11 +835,11 @@ export default function NestLeadDashboardPage() {
             >
               <p className="text-sm text-slate-600">
                 Showing{" "}
-                <span className="font-bold text-slate-900">
+                <span className="font-bold text-slate-950">
                   {firstVisibleItem}–{lastVisibleItem}
                 </span>{" "}
                 of{" "}
-                <span className="font-bold text-slate-900">
+                <span className="font-bold text-slate-950">
                   {filteredItems.length}
                 </span>{" "}
                 items
@@ -836,7 +852,7 @@ export default function NestLeadDashboardPage() {
                     setInventoryPage((page) => Math.max(1, page - 1))
                   }
                   disabled={inventoryPage <= 1}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-xl font-bold text-slate-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-xl font-bold text-slate-700 shadow-sm transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-900 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   ‹
                 </button>
@@ -850,7 +866,7 @@ export default function NestLeadDashboardPage() {
                     setInventoryPage((page) => Math.min(pageCount, page + 1))
                   }
                   disabled={inventoryPage >= pageCount}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-xl font-bold text-slate-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-xl font-bold text-slate-700 shadow-sm transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-900 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   ›
                 </button>
@@ -868,7 +884,7 @@ export default function NestLeadDashboardPage() {
           </div>
         </section>
 
-        <p className="mt-5 text-xs text-slate-400">
+        <p className="mt-5 text-xs text-slate-500">
           Nest assignments, catalog, and stock values are loaded from Supabase.
         </p>
       </div>
@@ -890,17 +906,19 @@ function SummaryCard({
   iconClass: string;
 }) {
   return (
-    <article className="flex min-h-28 items-center gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+    <article className="flex min-h-28 items-center gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md">
       <span
-        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-lg font-bold ${iconClass}`}
+        className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-lg font-bold ${iconClass}`}
       >
         {icon}
       </span>
 
       <div className="min-w-0">
-        <p className="text-xs text-slate-500">{label}</p>
-        <p className="mt-1 text-2xl font-bold tracking-tight">{value}</p>
-        <p className="mt-1 truncate text-xs text-slate-400">{detail}</p>
+        <p className="text-xs font-medium text-slate-600">{label}</p>
+        <p className="mt-1 text-2xl font-bold tracking-tight text-slate-950">
+          {value}
+        </p>
+        <p className="mt-1 truncate text-xs text-slate-500">{detail}</p>
       </div>
     </article>
   );

@@ -1,6 +1,6 @@
 "use client";
-import Link from "next/link";
 
+import Link from "next/link";
 import {
   useEffect,
   useMemo,
@@ -305,14 +305,12 @@ export default function QuartermasterDashboardPage() {
   const categoryOptions = useMemo(
     () =>
       [
-        ...new Set(
-          [
-            ...(dashboard?.categories ?? []),
-            ...catalogItems
-              .map((item) => item.category?.trim())
-              .filter((category): category is string => Boolean(category)),
-          ],
-        ),
+        ...new Set([
+          ...(dashboard?.categories ?? []),
+          ...catalogItems
+            .map((item) => item.category?.trim())
+            .filter((category): category is string => Boolean(category)),
+        ]),
       ].sort((a, b) => a.localeCompare(b)),
     [dashboard?.categories, catalogItems],
   );
@@ -538,8 +536,7 @@ export default function QuartermasterDashboardPage() {
       const message = getReceiptQuantityMessage(
         invalidLine.line,
         String(
-          receiptQuantities[invalidLine.line.lineId] ??
-            invalidLine.quantity,
+          receiptQuantities[invalidLine.line.lineId] ?? invalidLine.quantity,
         ),
         nestCode,
       );
@@ -662,8 +659,7 @@ export default function QuartermasterDashboardPage() {
       }
 
       const itemName = selectedConsumeItem.name;
-      const unit =
-        selectedConsumeItem.stockUnit ?? selectedConsumeItem.uom;
+      const unit = selectedConsumeItem.stockUnit ?? selectedConsumeItem.uom;
       const remainingQuantity = Number(result.remainingQuantity);
 
       setConsumeOpen(false);
@@ -756,13 +752,13 @@ export default function QuartermasterDashboardPage() {
       <div className="mx-auto max-w-7xl">
         <header className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-violet-800">
               Quartermaster workspace
             </p>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">
+            <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
               Inventory overview
             </h1>
-            <p className="mt-2 max-w-2xl text-sm text-slate-500">
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
               Review deliveries, find stock quickly, and manage item balances
               at your assigned nest.
             </p>
@@ -771,7 +767,7 @@ export default function QuartermasterDashboardPage() {
           <div className="flex flex-col gap-3 sm:items-end">
             {availableNests.length > 1 ? (
               <label className="w-full sm:w-64">
-                <span className="mb-1 block text-xs font-semibold text-slate-500">
+                <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-600">
                   Assigned location
                 </span>
                 <select
@@ -783,7 +779,7 @@ export default function QuartermasterDashboardPage() {
                     setStockFilter("all");
                     setNotice("");
                   }}
-                  className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-800 shadow-sm"
+                  className="h-11 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm font-semibold text-slate-900 shadow-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
                 >
                   {availableNests.map((nest) => (
                     <option key={nest.nestId} value={nest.nestId}>
@@ -793,15 +789,15 @@ export default function QuartermasterDashboardPage() {
                 </select>
               </label>
             ) : (
-              <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
-                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-lg text-emerald-700">
+              <div className="flex items-center gap-3 rounded-xl border border-violet-200 bg-white px-3 py-2.5 shadow-sm">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-100 text-lg text-violet-800">
                   ⌖
                 </span>
                 <span>
-                  <span className="block text-[10px] text-slate-500">
+                  <span className="block text-[10px] font-bold uppercase tracking-wide text-slate-500">
                     Assigned location
                   </span>
-                  <strong className="block text-sm text-emerald-900">
+                  <strong className="block text-sm text-violet-950">
                     {assignedLocation?.code ?? (loading ? "Loading…" : "—")}
                     {assignedLocation?.name
                       ? ` · ${assignedLocation.name}`
@@ -814,27 +810,28 @@ export default function QuartermasterDashboardPage() {
         </header>
 
         <nav
-  aria-label="Quartermaster dashboard views"
-  className="mt-4 flex flex-wrap gap-2"
->
-  <Link
-    href="/quartermaster/dashboard"
-    aria-current="page"
-    className="rounded-xl bg-violet-100 px-4 py-2.5 text-sm font-bold text-violet-900"
-  >
-    Inventory
-  </Link>
-  <Link
-    href="/expenses/dashboard"
-    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:border-violet-300 hover:text-violet-800"
-  >
-    Quarterly expenses
-  </Link>
-</nav>
+          aria-label="Quartermaster dashboard views"
+          className="mt-5 flex flex-wrap gap-2"
+        >
+          <Link
+            href="/quartermaster/dashboard"
+            aria-current="page"
+            className="rounded-xl border border-violet-200 bg-violet-100 px-4 py-2.5 text-sm font-bold text-violet-950 shadow-sm"
+          >
+            Inventory
+          </Link>
+          <Link
+            href="/expenses/dashboard"
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-900"
+          >
+            Quarterly expenses
+          </Link>
+        </nav>
+
         {error && (
           <div
             role="alert"
-            className="mt-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+            className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 shadow-sm"
           >
             {error}
           </div>
@@ -843,7 +840,7 @@ export default function QuartermasterDashboardPage() {
         {notice && (
           <div
             role="status"
-            className="mt-5 rounded-lg border border-emerald-200 bg-white px-4 py-3 text-sm text-emerald-800"
+            className="mt-5 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-medium text-violet-950 shadow-sm"
           >
             {notice}
           </div>
@@ -855,44 +852,44 @@ export default function QuartermasterDashboardPage() {
             value={loading ? "—" : catalogItems.length}
             detail="Items across the country catalog"
             icon="▤"
-            iconClass="bg-emerald-50 text-emerald-700"
+            iconClass="bg-violet-100 text-violet-800"
           />
           <SummaryCard
             label="In stock"
             value={loading ? "—" : availableItems.length}
             detail="Positive balances at this nest"
             icon="✓"
-            iconClass="bg-blue-50 text-blue-700"
+            iconClass="bg-indigo-100 text-indigo-800"
           />
           <SummaryCard
             label="Out of stock"
             value={loading ? "—" : outOfStockCount}
             detail="Tracked items with zero balance"
             icon="!"
-            iconClass="bg-amber-50 text-amber-700"
+            iconClass="bg-amber-100 text-amber-800"
           />
           <SummaryCard
             label="Not recorded"
             value={loading ? "—" : untrackedCount}
             detail="No balance recorded at this nest"
             icon="○"
-            iconClass="bg-slate-100 text-slate-600"
+            iconClass="bg-slate-100 text-slate-700"
           />
         </section>
 
         {receiptRequests.length > 0 && (
           <section className="mt-7">
-            <details className="group overflow-hidden rounded-xl border border-amber-200 bg-white shadow-sm">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 bg-gradient-to-r from-amber-50 to-white p-5 [&::-webkit-details-marker]:hidden">
+            <details className="group overflow-hidden rounded-2xl border border-violet-200 bg-white shadow-sm">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 bg-gradient-to-r from-violet-50 via-white to-white p-5 [&::-webkit-details-marker]:hidden sm:p-6">
                 <span className="flex min-w-0 items-center gap-3">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-lg text-amber-800">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-lg text-violet-900">
                     ⇩
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-[10px] font-bold uppercase tracking-[0.14em] text-amber-800">
+                    <span className="block text-[10px] font-bold uppercase tracking-[0.14em] text-violet-800">
                       Delivery review
                     </span>
-                    <span className="mt-0.5 block truncate text-lg font-bold tracking-tight text-slate-900">
+                    <span className="mt-0.5 block truncate text-lg font-bold tracking-tight text-slate-950">
                       Purchases awaiting receipt
                     </span>
                     <span className="mt-1 block text-xs text-slate-600">
@@ -902,25 +899,25 @@ export default function QuartermasterDashboardPage() {
                 </span>
 
                 <span className="flex shrink-0 items-center gap-3">
-                  <span className="hidden rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 shadow-sm sm:inline-flex">
+                  <span className="hidden rounded-full border border-violet-100 bg-white px-3 py-1.5 text-xs font-semibold text-violet-900 shadow-sm sm:inline-flex">
                     {receiptRequests.length} delivery(s) ·{" "}
                     {pendingReceiptLineCount} item line(s) pending
                   </span>
                   <span
                     aria-hidden="true"
-                    className="flex h-9 w-9 items-center justify-center rounded-lg border border-amber-200 bg-white text-lg text-amber-800 transition-transform group-open:rotate-180"
+                    className="flex h-9 w-9 items-center justify-center rounded-lg border border-violet-200 bg-white text-lg text-violet-900 transition-transform group-open:rotate-180"
                   >
                     ⌄
                   </span>
                 </span>
               </summary>
 
-              <div className="space-y-4 border-t border-amber-100 bg-slate-50/40 p-4 sm:p-5">
+              <div className="space-y-4 border-t border-violet-100 bg-slate-50/70 p-4 sm:p-5">
                 <div className="flex flex-wrap gap-2 sm:hidden">
-                  <span className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 shadow-sm">
+                  <span className="rounded-full border border-violet-100 bg-white px-3 py-1.5 text-xs font-semibold text-violet-900 shadow-sm">
                     {receiptRequests.length} delivery(s)
                   </span>
-                  <span className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 shadow-sm">
+                  <span className="rounded-full border border-violet-100 bg-white px-3 py-1.5 text-xs font-semibold text-violet-900 shadow-sm">
                     {pendingReceiptLineCount} item line(s) pending
                   </span>
                 </div>
@@ -949,10 +946,10 @@ export default function QuartermasterDashboardPage() {
                       <header className="flex flex-col justify-between gap-3 border-b border-slate-100 bg-white p-5 sm:flex-row sm:items-center">
                         <div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="text-base font-bold text-slate-900">
+                            <h3 className="text-base font-bold text-slate-950">
                               Delivery {purchase.reference}
                             </h3>
-                            <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold capitalize text-amber-900">
+                            <span className="rounded-full bg-violet-100 px-2.5 py-1 text-[10px] font-bold capitalize text-violet-950">
                               {purchase.status.replaceAll("_", " ")}
                             </span>
                           </div>
@@ -1000,10 +997,10 @@ export default function QuartermasterDashboardPage() {
                               return (
                                 <tr
                                   key={line.lineId}
-                                  className="transition-colors hover:bg-amber-50/20"
+                                  className="transition-colors hover:bg-violet-50/50"
                                 >
                                   <td className="px-5 py-4">
-                                    <p className="font-semibold text-slate-900">
+                                    <p className="font-semibold text-slate-950">
                                       {line.itemName}
                                     </p>
                                     <p className="mt-1 text-[11px] text-slate-500">
@@ -1023,7 +1020,7 @@ export default function QuartermasterDashboardPage() {
                                     <span
                                       className={
                                         complete
-                                          ? "font-medium text-emerald-700"
+                                          ? "font-medium text-violet-800"
                                           : "font-bold text-amber-800"
                                       }
                                     >
@@ -1032,7 +1029,7 @@ export default function QuartermasterDashboardPage() {
                                   </td>
                                   <td className="px-5 py-4">
                                     {complete ? (
-                                      <span className="text-sm font-semibold text-emerald-700">
+                                      <span className="text-sm font-semibold text-violet-800">
                                         Fully received
                                       </span>
                                     ) : fractional ? (
@@ -1064,7 +1061,7 @@ export default function QuartermasterDashboardPage() {
                                               return next;
                                             });
                                           }}
-                                          className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100 sm:w-40"
+                                          className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-100 sm:w-40"
                                         />
                                         {feedback && (
                                           <p
@@ -1088,7 +1085,7 @@ export default function QuartermasterDashboardPage() {
                       </div>
 
                       {pendingLines.length > 0 && (
-                        <label className="flex cursor-pointer items-start gap-3 border-t border-slate-100 bg-slate-50/70 px-5 py-4 text-sm text-slate-700">
+                        <label className="flex cursor-pointer items-start gap-3 border-t border-slate-100 bg-violet-50/50 px-5 py-4 text-sm text-slate-700">
                           <input
                             type="checkbox"
                             checked={isVerified}
@@ -1103,13 +1100,13 @@ export default function QuartermasterDashboardPage() {
                                 return next;
                               });
                             }}
-                            className="mt-0.5 h-4 w-4 accent-emerald-700"
+                            className="mt-0.5 h-4 w-4 accent-violet-800"
                           />
                           <span>
-                            <span className="block font-semibold text-slate-900">
+                            <span className="block font-semibold text-slate-950">
                               I checked the delivery against this manifest.
                             </span>
-                            <span className="mt-0.5 block text-xs text-slate-500">
+                            <span className="mt-0.5 block text-xs text-slate-600">
                               Review all listed quantities, then acknowledge
                               this receipt once.
                             </span>
@@ -1148,7 +1145,7 @@ export default function QuartermasterDashboardPage() {
                               hasFractionalPending ||
                               Boolean(receivingRequestId)
                             }
-                            className="h-11 shrink-0 rounded-lg bg-emerald-700 px-5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                            className="h-11 shrink-0 rounded-xl bg-violet-800 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-900 focus:outline-none focus:ring-4 focus:ring-violet-200 disabled:cursor-not-allowed disabled:bg-slate-300"
                           >
                             {receivingRequestId === purchase.requestId
                               ? "Recording receipt…"
@@ -1164,17 +1161,17 @@ export default function QuartermasterDashboardPage() {
           </section>
         )}
 
-        <section className="mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 bg-gradient-to-r from-white to-emerald-50/50 p-5 sm:p-6">
+        <section className="mt-8 overflow-hidden rounded-2xl border border-violet-200 bg-white shadow-sm">
+          <div className="border-b border-violet-100 bg-gradient-to-r from-violet-50 via-white to-white p-5 sm:p-6">
             <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-violet-800">
                   Stock control
                 </p>
-                <h2 className="mt-1 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+                <h2 className="mt-1 text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">
                   Inventory items
                 </h2>
-                <p className="mt-1 max-w-2xl text-sm text-slate-500">
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
                   Search the catalog, check balances at this nest, and narrow
                   the list by team, category, or stock status.
                 </p>
@@ -1183,7 +1180,7 @@ export default function QuartermasterDashboardPage() {
                 <button
                   type="button"
                   onClick={openAddItem}
-                  className="h-10 rounded-lg border border-emerald-200 bg-white px-4 text-sm font-semibold text-emerald-800 shadow-sm hover:bg-emerald-50"
+                  className="h-10 rounded-xl border border-violet-200 bg-white px-4 text-sm font-semibold text-violet-900 shadow-sm transition hover:bg-violet-50 focus:outline-none focus:ring-4 focus:ring-violet-100"
                 >
                   <span aria-hidden="true" className="mr-1">
                     ＋
@@ -1194,7 +1191,7 @@ export default function QuartermasterDashboardPage() {
                   type="button"
                   onClick={() => openConsume()}
                   disabled={availableItems.length === 0 || loading}
-                  className="h-10 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="h-10 rounded-xl bg-violet-800 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-900 focus:outline-none focus:ring-4 focus:ring-violet-200 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Consume an item
                 </button>
@@ -1208,34 +1205,34 @@ export default function QuartermasterDashboardPage() {
               value={loading ? "—" : catalogItems.length}
               detail="Items in the country catalog"
               icon="▤"
-              iconClass="bg-emerald-50 text-emerald-700"
+              iconClass="bg-violet-100 text-violet-800"
             />
             <SummaryCard
               label="In stock"
               value={loading ? "—" : availableItems.length}
               detail="Positive balances at this nest"
               icon="✓"
-              iconClass="bg-blue-50 text-blue-700"
+              iconClass="bg-indigo-100 text-indigo-800"
             />
             <SummaryCard
               label="Out of stock"
               value={loading ? "—" : outOfStockCount}
               detail="Tracked items with zero balance"
               icon="!"
-              iconClass="bg-amber-50 text-amber-700"
+              iconClass="bg-amber-100 text-amber-800"
             />
             <SummaryCard
               label="Not recorded"
               value={loading ? "—" : untrackedCount}
               detail="No balance recorded at this nest"
               icon="○"
-              iconClass="bg-slate-100 text-slate-600"
+              iconClass="bg-slate-100 text-slate-700"
             />
           </div>
 
           <div className="grid lg:grid-cols-[210px_minmax(0,1fr)]">
-            <aside className="border-b border-slate-200 bg-slate-50/70 p-3 sm:p-4 lg:border-b-0 lg:border-r">
-              <p className="mb-2 px-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+            <aside className="border-b border-slate-200 bg-slate-50/80 p-3 sm:p-4 lg:border-b-0 lg:border-r">
+              <p className="mb-2 px-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
                 Browse teams
               </p>
 
@@ -1268,7 +1265,7 @@ export default function QuartermasterDashboardPage() {
 
               <div className="my-4 border-t border-slate-200" />
 
-              <p className="mb-2 px-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+              <p className="mb-2 px-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
                 Quick views
               </p>
 
@@ -1297,8 +1294,8 @@ export default function QuartermasterDashboardPage() {
 
             <div className="min-w-0">
               <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:p-5 xl:flex-row xl:items-center xl:justify-between">
-                <label className="flex h-11 min-w-0 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-slate-400 shadow-sm xl:max-w-md xl:flex-1">
-                  <span aria-hidden="true" className="text-lg">
+                <label className="flex h-11 min-w-0 items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-slate-500 shadow-sm transition focus-within:border-violet-500 focus-within:ring-4 focus-within:ring-violet-100 xl:max-w-md xl:flex-1">
+                  <span aria-hidden="true" className="text-lg text-violet-700">
                     ⌕
                   </span>
                   <input
@@ -1307,7 +1304,7 @@ export default function QuartermasterDashboardPage() {
                     onChange={(event) => setSearch(event.target.value)}
                     placeholder="Search by item name or code..."
                     aria-label="Search catalog items"
-                    className="min-w-0 flex-1 border-0 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                    className="min-w-0 flex-1 border-0 bg-transparent text-sm text-slate-950 outline-none placeholder:text-slate-400"
                   />
                 </label>
 
@@ -1319,7 +1316,7 @@ export default function QuartermasterDashboardPage() {
                       onChange={(event) =>
                         chooseTeamFilter(event.target.value as TeamFilter)
                       }
-                      className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 shadow-sm"
+                      className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
                     >
                       <option value="">All teams</option>
                       {teams.map((team) => (
@@ -1337,7 +1334,7 @@ export default function QuartermasterDashboardPage() {
                       onChange={(event) =>
                         setCategoryFilter(event.target.value)
                       }
-                      className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 shadow-sm"
+                      className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
                     >
                       <option value="">All categories</option>
                       {categoryOptions.map((category) => (
@@ -1359,10 +1356,10 @@ export default function QuartermasterDashboardPage() {
                 </div>
               ) : filteredItems.length === 0 ? (
                 <div className="px-5 py-14 text-center">
-                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-xl text-slate-500">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-100 text-xl text-violet-800">
                     ⌕
                   </div>
-                  <p className="mt-3 text-sm font-semibold text-slate-800">
+                  <p className="mt-3 text-sm font-semibold text-slate-900">
                     {error
                       ? "Dashboard data could not be loaded."
                       : "No items match these filters."}
@@ -1374,27 +1371,26 @@ export default function QuartermasterDashboardPage() {
               ) : (
                 <>
                   <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-4 sm:px-5">
-                    <p className="text-xs font-medium text-slate-500">
+                    <p className="text-xs font-medium text-slate-600">
                       Showing{" "}
-                      <strong className="text-slate-800">
+                      <strong className="text-slate-950">
                         {firstVisibleItem}–{lastVisibleItem}
                       </strong>{" "}
                       of {filteredItems.length} matching items
                     </p>
-                    <span className="hidden text-xs text-slate-400 sm:inline">
+                    <span className="hidden text-xs text-slate-500 sm:inline">
                       Balances at {assignedLocation?.code ?? "this nest"}
                     </span>
                   </div>
 
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[920px] border-collapse text-left">
-                      <thead className="bg-slate-50">
+                    <table className="w-full min-w-[760px] border-collapse text-left">
+                      <thead className="bg-violet-50/70">
                         <tr>
                           <TableHeading>Item</TableHeading>
                           <TableHeading>Team</TableHeading>
                           <TableHeading>Category</TableHeading>
                           <TableHeading>Available quantity</TableHeading>
-                          <TableHeading>Last updated</TableHeading>
                           <TableHeading>Actions</TableHeading>
                         </tr>
                       </thead>
@@ -1406,25 +1402,25 @@ export default function QuartermasterDashboardPage() {
                           return (
                             <tr
                               key={item.id}
-                              className="border-t border-slate-100 transition-colors hover:bg-emerald-50/30"
+                              className="border-t border-slate-100 transition-colors hover:bg-violet-50/50"
                             >
                               <td className="px-4 py-4 sm:px-5">
                                 <div className="flex min-w-[210px] items-center gap-3">
-                                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-100 bg-emerald-50 text-lg font-semibold text-emerald-700">
+                                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-violet-200 bg-violet-100 text-lg font-semibold text-violet-900">
                                     {item.name.slice(0, 1).toUpperCase()}
                                   </span>
                                   <div className="min-w-0">
-                                    <p className="truncate text-sm font-semibold text-slate-900">
+                                    <p className="truncate text-sm font-semibold text-slate-950">
                                       {item.name}
                                     </p>
-                                    <p className="mt-0.5 truncate font-mono text-[11px] text-slate-400">
+                                    <p className="mt-0.5 truncate font-mono text-[11px] text-slate-500">
                                       {item.code || "No item code"}
                                     </p>
                                   </div>
                                 </div>
                               </td>
                               <td className="px-4 py-4">
-                                <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800">
+                                <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-900">
                                   {displayTeam(item.team)}
                                 </span>
                               </td>
@@ -1432,8 +1428,8 @@ export default function QuartermasterDashboardPage() {
                                 <span
                                   className={`rounded-full px-2.5 py-1 text-xs font-medium ${
                                     item.category
-                                      ? "bg-slate-100 text-slate-700"
-                                      : "bg-amber-50 text-amber-800"
+                                      ? "bg-slate-100 text-slate-800"
+                                      : "bg-amber-50 text-amber-900"
                                   }`}
                                 >
                                   {item.category || "Unassigned"}
@@ -1443,25 +1439,25 @@ export default function QuartermasterDashboardPage() {
                                 <div className="min-w-[140px]">
                                   {quantity === null ? (
                                     <>
-                                      <p className="text-sm font-semibold text-slate-500">
+                                      <p className="text-sm font-semibold text-slate-600">
                                         Not recorded
                                       </p>
-                                      <p className="mt-1 text-[11px] text-slate-400">
+                                      <p className="mt-1 text-[11px] text-slate-500">
                                         No balance at this nest
                                       </p>
                                     </>
                                   ) : (
                                     <>
-                                      <p className="text-lg font-bold leading-5 text-slate-900">
+                                      <p className="text-lg font-bold leading-5 text-slate-950">
                                         {Number(quantity).toLocaleString()}
-                                        <span className="ml-1.5 text-xs font-medium text-slate-500">
+                                        <span className="ml-1.5 text-xs font-medium text-slate-600">
                                           {item.stockUnit ?? item.uom}
                                         </span>
                                       </p>
                                       <p
                                         className={`mt-1 text-[11px] font-semibold ${
                                           hasStock
-                                            ? "text-emerald-700"
+                                            ? "text-violet-800"
                                             : "text-red-700"
                                         }`}
                                       >
@@ -1473,23 +1469,20 @@ export default function QuartermasterDashboardPage() {
                                   )}
                                 </div>
                               </td>
-                              <td className="whitespace-nowrap px-4 py-4 text-xs text-slate-500">
-                                {formatUpdatedAt(item.stockUpdatedAt)}
-                              </td>
                               <td className="px-4 py-4">
                                 <div className="flex items-center gap-2">
                                   <button
                                     type="button"
                                     onClick={() => openConsume(item)}
                                     disabled={getAvailableQuantity(item) <= 0}
-                                    className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+                                    className="rounded-lg bg-violet-800 px-3 py-2 text-xs font-semibold text-white transition hover:bg-violet-900 focus:outline-none focus:ring-4 focus:ring-violet-200 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
                                   >
                                     Consume
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => openCategory(item)}
-                                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-950 focus:outline-none focus:ring-4 focus:ring-violet-100"
                                   >
                                     {item.category
                                       ? "Category"
@@ -1506,12 +1499,12 @@ export default function QuartermasterDashboardPage() {
                 </>
               )}
 
-              <footer className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/60 px-4 py-3 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+              <footer className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50/80 px-4 py-3 text-xs text-slate-600 sm:flex-row sm:items-center sm:justify-between sm:px-5">
                 <span>
                   {filteredItems.length === 0
                     ? "No matching catalog items."
                     : `Showing ${firstVisibleItem}–${lastVisibleItem} of ${filteredItems.length} matching items`}
-                  <span className="text-slate-400">
+                  <span className="text-slate-500">
                     {" "}
                     · Catalog total: {catalogItems.length}
                   </span>
@@ -1530,11 +1523,11 @@ export default function QuartermasterDashboardPage() {
                       disabled={inventoryPage === 1}
                       aria-label="Previous inventory page"
                       title="Previous page"
-                      className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-lg font-semibold text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="flex h-9 w-9 items-center justify-center rounded-lg border border-violet-200 bg-white text-lg font-semibold text-violet-900 transition hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       ‹
                     </button>
-                    <span className="min-w-24 text-center font-semibold text-slate-600">
+                    <span className="min-w-24 text-center font-semibold text-slate-700">
                       Page {inventoryPage} of {inventoryPageCount}
                     </span>
                     <button
@@ -1547,7 +1540,7 @@ export default function QuartermasterDashboardPage() {
                       disabled={inventoryPage === inventoryPageCount}
                       aria-label="Next inventory page"
                       title="Next page"
-                      className="flex h-9 w-9 items-center justify-center rounded-lg border border-emerald-200 bg-white text-lg font-semibold text-emerald-800 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="flex h-9 w-9 items-center justify-center rounded-lg border border-violet-200 bg-white text-lg font-semibold text-violet-900 transition hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       ›
                     </button>
@@ -1567,7 +1560,7 @@ export default function QuartermasterDashboardPage() {
         >
           <form onSubmit={handleConsume}>
             <label className="mb-2 block">
-              <span className="mb-1.5 block text-xs font-semibold text-slate-600">
+              <span className="mb-1.5 block text-xs font-semibold text-slate-700">
                 Find item
               </span>
               <input
@@ -1581,12 +1574,12 @@ export default function QuartermasterDashboardPage() {
                 }}
                 placeholder="Type item name or code"
                 autoComplete="off"
-                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400"
+                className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
               />
             </label>
 
             {!selectedConsumeItem && (
-              <div className="mb-4 max-h-52 overflow-y-auto rounded-lg border border-slate-200">
+              <div className="mb-4 max-h-52 overflow-y-auto rounded-xl border border-slate-200">
                 {consumeSuggestions.length > 0 ? (
                   consumeSuggestions.map((item) => (
                     <button
@@ -1597,25 +1590,25 @@ export default function QuartermasterDashboardPage() {
                         setConsumeSearch(item.name);
                         setConsumeQuantity("");
                       }}
-                      className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-3 py-3 text-left last:border-0 hover:bg-emerald-50"
+                      className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-3 py-3 text-left transition last:border-0 hover:bg-violet-50"
                     >
                       <span>
-                        <span className="block text-sm font-semibold">
+                        <span className="block text-sm font-semibold text-slate-950">
                           {item.name}
                         </span>
-                        <span className="text-xs text-slate-500">
+                        <span className="text-xs text-slate-600">
                           {item.code ? `${item.code} · ` : ""}
                           {displayTeam(item.team)}
                         </span>
                       </span>
-                      <span className="shrink-0 text-sm font-semibold text-emerald-800">
+                      <span className="shrink-0 text-sm font-semibold text-violet-900">
                         {getAvailableQuantity(item)}{" "}
                         {item.stockUnit ?? item.uom}
                       </span>
                     </button>
                   ))
                 ) : (
-                  <p className="px-3 py-4 text-sm text-slate-500">
+                  <p className="px-3 py-4 text-sm text-slate-600">
                     No matching items have stock available.
                   </p>
                 )}
@@ -1623,13 +1616,13 @@ export default function QuartermasterDashboardPage() {
             )}
 
             {selectedConsumeItem && (
-              <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+              <div className="mb-4 rounded-xl border border-violet-200 bg-violet-50 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold">
+                    <p className="text-sm font-semibold text-slate-950">
                       {selectedConsumeItem.name}
                     </p>
-                    <p className="mt-1 text-xs text-emerald-800">
+                    <p className="mt-1 text-xs text-violet-950">
                       Currently available:{" "}
                       <strong>
                         {getAvailableQuantity(selectedConsumeItem)}{" "}
@@ -1645,7 +1638,7 @@ export default function QuartermasterDashboardPage() {
                       setConsumeSearch("");
                       setConsumeQuantity("");
                     }}
-                    className="text-xs font-semibold text-emerald-800 underline"
+                    className="text-xs font-semibold text-violet-900 underline"
                   >
                     Change
                   </button>
@@ -1654,7 +1647,7 @@ export default function QuartermasterDashboardPage() {
             )}
 
             <label className="mb-4 block">
-              <span className="mb-1.5 block text-xs font-semibold text-slate-600">
+              <span className="mb-1.5 block text-xs font-semibold text-slate-700">
                 Quantity used
               </span>
               <input
@@ -1670,12 +1663,12 @@ export default function QuartermasterDashboardPage() {
                 value={consumeQuantity}
                 onChange={(event) => setConsumeQuantity(event.target.value)}
                 disabled={!selectedConsumeItem || consuming}
-                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 disabled:bg-slate-50"
+                className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100 disabled:bg-slate-100"
               />
             </label>
 
             <label className="block">
-              <span className="mb-1.5 block text-xs font-semibold text-slate-600">
+              <span className="mb-1.5 block text-xs font-semibold text-slate-700">
                 Note (optional)
               </span>
               <textarea
@@ -1683,7 +1676,7 @@ export default function QuartermasterDashboardPage() {
                 maxLength={500}
                 value={consumeNote}
                 onChange={(event) => setConsumeNote(event.target.value)}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
               />
             </label>
 
@@ -1707,14 +1700,14 @@ export default function QuartermasterDashboardPage() {
         >
           <form onSubmit={handleCategorySave}>
             <label className="block">
-              <span className="mb-1.5 block text-xs font-semibold text-slate-600">
+              <span className="mb-1.5 block text-xs font-semibold text-slate-700">
                 Existing category
               </span>
               <select
                 autoFocus
                 value={categoryDraft}
                 onChange={(event) => setCategoryDraft(event.target.value)}
-                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900"
+                className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
               >
                 <option value="">Unassigned</option>
                 {categoryOptions.map((category) => (
@@ -1724,7 +1717,7 @@ export default function QuartermasterDashboardPage() {
                 ))}
               </select>
             </label>
-            <p className="mt-2 text-xs text-slate-500">
+            <p className="mt-2 text-xs text-slate-600">
               Categories are shared by this item across the country catalog.
             </p>
 
@@ -1747,7 +1740,7 @@ export default function QuartermasterDashboardPage() {
         >
           <form onSubmit={handleAddItem} className="space-y-4">
             <label className="block">
-              <span className="mb-1.5 block text-xs font-semibold text-slate-600">
+              <span className="mb-1.5 block text-xs font-semibold text-slate-700">
                 Item name or code
               </span>
               <input
@@ -1760,29 +1753,29 @@ export default function QuartermasterDashboardPage() {
                   setNewItem({ ...newItem, name: event.target.value });
                 }}
                 placeholder="Type to search existing items, or enter a new item"
-                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400"
+                className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
               />
             </label>
 
             {!existingItemId && addItemSuggestions.length > 0 && (
-              <div className="-mt-2 max-h-44 overflow-y-auto rounded-lg border border-slate-200">
+              <div className="-mt-2 max-h-44 overflow-y-auto rounded-xl border border-slate-200">
                 {addItemSuggestions.map((item) => (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => chooseExistingItem(item)}
-                    className="flex w-full items-start justify-between gap-3 border-b border-slate-100 px-3 py-2 text-left last:border-0 hover:bg-emerald-50"
+                    className="flex w-full items-start justify-between gap-3 border-b border-slate-100 px-3 py-2 text-left transition last:border-0 hover:bg-violet-50"
                   >
                     <span>
-                      <span className="block text-sm font-semibold">
+                      <span className="block text-sm font-semibold text-slate-950">
                         {item.name}
                       </span>
-                      <span className="text-xs text-slate-500">
+                      <span className="text-xs text-slate-600">
                         {item.code || "No code"} · {displayTeam(item.team)} ·{" "}
                         {item.category || "Unassigned"}
                       </span>
                     </span>
-                    <span className="shrink-0 text-xs text-slate-500">
+                    <span className="shrink-0 text-xs text-slate-600">
                       {item.stockQuantity === null
                         ? "No balance"
                         : `${item.stockQuantity} ${
@@ -1795,9 +1788,9 @@ export default function QuartermasterDashboardPage() {
             )}
 
             {existingItemId ? (
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm">
-                <p className="font-semibold">{newItem.name}</p>
-                <p className="mt-1 text-xs text-slate-600">
+              <div className="rounded-xl border border-violet-200 bg-violet-50 p-3 text-sm">
+                <p className="font-semibold text-slate-950">{newItem.name}</p>
+                <p className="mt-1 text-xs text-slate-700">
                   {newItem.code || "No item code"} ·{" "}
                   {displayTeam(newItem.team)} · {newItem.unit}
                 </p>
@@ -1814,7 +1807,7 @@ export default function QuartermasterDashboardPage() {
                       quantity: newItem.quantity,
                     });
                   }}
-                  className="mt-2 text-xs font-semibold text-emerald-800 underline"
+                  className="mt-2 text-xs font-semibold text-violet-900 underline"
                 >
                   Clear selection and enter a new item
                 </button>
@@ -1822,7 +1815,7 @@ export default function QuartermasterDashboardPage() {
             ) : (
               <>
                 <label className="block">
-                  <span className="mb-1.5 block text-xs font-semibold text-slate-600">
+                  <span className="mb-1.5 block text-xs font-semibold text-slate-700">
                     Item code (optional)
                   </span>
                   <input
@@ -1831,13 +1824,13 @@ export default function QuartermasterDashboardPage() {
                     onChange={(event) =>
                       setNewItem({ ...newItem, code: event.target.value })
                     }
-                    className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900"
+                    className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
                   />
                 </label>
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <label className="block">
-                    <span className="mb-1.5 block text-xs font-semibold text-slate-600">
+                    <span className="mb-1.5 block text-xs font-semibold text-slate-700">
                       Team
                     </span>
                     <select
@@ -1849,7 +1842,7 @@ export default function QuartermasterDashboardPage() {
                           team: event.target.value as Team,
                         })
                       }
-                      className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900"
+                      className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
                     >
                       {teams.map((team) => (
                         <option key={team} value={team}>
@@ -1860,7 +1853,7 @@ export default function QuartermasterDashboardPage() {
                   </label>
 
                   <label className="block">
-                    <span className="mb-1.5 block text-xs font-semibold text-slate-600">
+                    <span className="mb-1.5 block text-xs font-semibold text-slate-700">
                       Unit of measure
                     </span>
                     <input
@@ -1871,7 +1864,7 @@ export default function QuartermasterDashboardPage() {
                         setNewItem({ ...newItem, unit: event.target.value })
                       }
                       placeholder="Pieces, Pack, Bottle…"
-                      className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400"
+                      className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
                     />
                   </label>
                 </div>
@@ -1879,7 +1872,7 @@ export default function QuartermasterDashboardPage() {
             )}
 
             <label className="block">
-              <span className="mb-1.5 block text-xs font-semibold text-slate-600">
+              <span className="mb-1.5 block text-xs font-semibold text-slate-700">
                 Existing category (optional)
               </span>
               <select
@@ -1887,7 +1880,7 @@ export default function QuartermasterDashboardPage() {
                 onChange={(event) =>
                   setNewItem({ ...newItem, category: event.target.value })
                 }
-                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900"
+                className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
               >
                 <option value="">Unassigned</option>
                 {categoryOptions.map((category) => (
@@ -1899,7 +1892,7 @@ export default function QuartermasterDashboardPage() {
             </label>
 
             <label className="block">
-              <span className="mb-1.5 block text-xs font-semibold text-slate-600">
+              <span className="mb-1.5 block text-xs font-semibold text-slate-700">
                 Quantity to add at this nest
               </span>
               <input
@@ -1911,11 +1904,11 @@ export default function QuartermasterDashboardPage() {
                 onChange={(event) =>
                   setNewItem({ ...newItem, quantity: event.target.value })
                 }
-                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900"
+                className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
               />
             </label>
 
-            <p className="text-xs text-slate-500">
+            <p className="text-xs leading-5 text-slate-600">
               Selecting an existing item adds stock to it at this nest. A new
               item is added to the country catalog.
             </p>
@@ -1951,10 +1944,10 @@ function BrowseButton({
     <button
       type="button"
       onClick={onClick}
-      className={`mb-1 flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
+      className={`mb-1 flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
         active
-          ? "bg-emerald-100 text-emerald-900"
-          : "text-slate-600 hover:bg-white"
+          ? "bg-violet-100 text-violet-950"
+          : "text-slate-700 hover:bg-white hover:text-violet-900"
       }`}
     >
       <span className="flex items-center gap-2">
@@ -1963,7 +1956,7 @@ function BrowseButton({
         </span>
         {label}
       </span>
-      <span className="rounded-full bg-white/80 px-2 py-0.5 text-xs text-slate-500">
+      <span className="rounded-full bg-white/80 px-2 py-0.5 text-xs text-slate-600">
         {count}
       </span>
     </button>
@@ -1987,26 +1980,28 @@ function Modal({
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
-      className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-950/45 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-950/50 p-4 backdrop-blur-sm"
     >
       <section
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="my-auto w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl sm:p-7"
+        className="my-auto w-full max-w-lg rounded-2xl border border-violet-100 bg-white p-5 shadow-2xl sm:p-7"
       >
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-emerald-700">
+            <p className="text-xs font-bold uppercase tracking-widest text-violet-800">
               {subtitle}
             </p>
-            <h2 className="mt-2 text-2xl font-bold tracking-tight">{title}</h2>
+            <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-950">
+              {title}
+            </h2>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close dialog"
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-xl text-slate-500 hover:bg-slate-50"
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-xl text-slate-600 transition hover:bg-violet-50 hover:text-violet-900"
           >
             ×
           </button>
@@ -2034,14 +2029,14 @@ function ModalActions({
         type="button"
         onClick={onCancel}
         disabled={busy}
-        className="h-10 rounded-lg border border-slate-200 px-4 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+        className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
       >
         Cancel
       </button>
       <button
         type="submit"
         disabled={busy || submitDisabled}
-        className="h-10 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+        className="h-10 rounded-xl bg-violet-800 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-900 focus:outline-none focus:ring-4 focus:ring-violet-200 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {submitText}
       </button>
@@ -2053,7 +2048,7 @@ function ErrorMessage({ children }: { children: ReactNode }) {
   return (
     <div
       role="alert"
-      className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800"
+      className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800"
     >
       {children}
     </div>
@@ -2074,18 +2069,18 @@ function SummaryCard({
   iconClass: string;
 }) {
   return (
-    <article className="flex min-h-24 items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <article className="flex min-h-24 items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-violet-200 hover:shadow-md">
       <span
-        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-lg font-bold ${iconClass}`}
+        className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-lg font-bold ${iconClass}`}
       >
         {icon}
       </span>
       <div className="min-w-0">
-        <p className="text-xs text-slate-500">{label}</p>
-        <p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
+        <p className="text-xs font-medium text-slate-600">{label}</p>
+        <p className="mt-1 text-2xl font-bold tracking-tight text-slate-950">
           {value}
         </p>
-        <p className="mt-1 truncate text-xs text-slate-400">{detail}</p>
+        <p className="mt-1 truncate text-xs text-slate-500">{detail}</p>
       </div>
     </article>
   );
@@ -2093,7 +2088,7 @@ function SummaryCard({
 
 function TableHeading({ children }: { children: ReactNode }) {
   return (
-    <th className="whitespace-nowrap px-4 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
+    <th className="whitespace-nowrap px-4 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-600">
       {children}
     </th>
   );
