@@ -517,10 +517,7 @@ export async function GET(request: Request) {
                 item.cycle_id === row.cycle_id && item.status !== "rejected",
             )
             .reduce((sum, item) => {
-              const value =
-                item.status === "actual" && item.actual_amount != null
-                  ? Number(item.actual_amount)
-                  : Number(item.amount ?? 0);
+              const value = Number(item.actual_amount ?? item.amount ?? 0);
               return sum + value;
             }, 0);
 
@@ -1132,15 +1129,35 @@ export async function POST(request: Request) {
       const nextStatus = String(body.status ?? "");
       const valid =
         (cycle.status === "draft" && nextStatus === "open") ||
-        (cycle.status === "open" && nextStatus === "in_review") ||
-        (cycle.status === "in_review" && nextStatus === "approved") ||
-        (cycle.status === "approved" && nextStatus === "closed");
+        (cycle.status === "open" && nextStatus === "closed") ||
+        (cycle.status === "in_review" && nextStatus === "open") ||
+        (cycle.status === "approved" &&
+          ["open", "closed"].includes(nextStatus));
 
       if (!manager || !valid) {
         return NextResponse.json(
           { error: "That quarter status change is not allowed." },
           { status: 403 },
         );
+      }
+
+      if (nextStatus === "closed") {
+        const { count, error: pendingError } = await supabase
+          .from("app_expense_entries")
+          .select("expense_id", { count: "exact", head: true })
+          .eq("cycle_id", cycleId)
+          .in("status", ["planned", "in_review"]);
+
+        if (pendingError) throw new Error(pendingError.message);
+
+        if ((count ?? 0) > 0) {
+          return NextResponse.json(
+            {
+              error: `Resolve the ${count} pending expense(s) before closing this quarter.`,
+            },
+            { status: 409 },
+          );
+        }
       }
 
       const updates: Record<string, unknown> = {
@@ -1537,7 +1554,7 @@ export async function POST(request: Request) {
       const quantity = Number(body.quantity);
       const unitCost = Number(body.unitCost);
       const amount = Number(body.amount);
-      const status = String(body.status ?? "planned");
+      const status = String(body.status ?? "in_review");
 
       if (
         cycle.status !== "open" ||
@@ -1733,9 +1750,11 @@ export async function POST(request: Request) {
     if (action === "review_expense") {
       const expenseId = String(body.expenseId ?? "");
       const status = String(body.status ?? "");
+      const reviewNote = String(body.reviewNote ?? "").trim();
+
       if (
         !manager ||
-        cycle.status !== "in_review" ||
+        !["open", "in_review"].includes(cycle.status) ||
         !expenseId ||
         !["approved", "rejected", "actual"].includes(status)
       ) {
@@ -1747,7 +1766,7 @@ export async function POST(request: Request) {
 
       const { data: current, error: currentError } = await supabase
         .from("app_expense_entries")
-        .select("expense_id, created_by, amount")
+        .select("expense_id, created_by, amount, actual_amount, status, nest_id")
         .eq("expense_id", expenseId)
         .eq("cycle_id", cycleId)
         .maybeSingle();
@@ -1765,11 +1784,102 @@ export async function POST(request: Request) {
           { status: 403 },
         );
       }
+      if (!["planned", "in_review"].includes(String(current.status))) {
+        return NextResponse.json(
+          { error: "This expense has already been reviewed." },
+          { status: 409 },
+        );
+      }
 
-      const actualAmount =
-        status === "actual"
-          ? Number(body.actualAmount ?? current.amount)
-          : null;
+      const rawActualAmount = body.actualAmount;
+      const hasActualAmount =
+        rawActualAmount !== null &&
+        rawActualAmount !== undefined &&
+        String(rawActualAmount).trim() !== "";
+      const parsedActualAmount = hasActualAmount
+        ? Number(rawActualAmount)
+        : Number(current.actual_amount ?? current.amount);
+
+      if (
+        status !== "rejected" &&
+        (!Number.isFinite(parsedActualAmount) || parsedActualAmount < 0)
+      ) {
+        return NextResponse.json(
+          { error: "Enter a valid actual amount." },
+          { status: 400 },
+        );
+      }
+
+      const actualAmount = status === "rejected" ? null : parsedActualAmount;
+
+      if (status !== "rejected") {
+        const nestId = Number(current.nest_id);
+        const [allocationResult, entriesResult, fuelResult] = await Promise.all([
+          supabase
+            .from("app_expense_nest_allocations")
+            .select("allocation_amount")
+            .eq("cycle_id", cycleId)
+            .eq("nest_id", nestId)
+            .maybeSingle(),
+          supabase
+            .from("app_expense_entries")
+            .select("expense_id, amount, actual_amount, status")
+            .eq("cycle_id", cycleId)
+            .eq("nest_id", nestId),
+          supabase
+            .from("app_expense_fuel_plans")
+            .select("*")
+            .eq("cycle_id", cycleId)
+            .eq("nest_id", nestId),
+        ]);
+
+        if (allocationResult.error) {
+          throw new Error(allocationResult.error.message);
+        }
+        if (entriesResult.error) throw new Error(entriesResult.error.message);
+        if (fuelResult.error) throw new Error(fuelResult.error.message);
+
+        const allocation = Number(
+          allocationResult.data?.allocation_amount ?? 0,
+        );
+        const otherExpenses = (entriesResult.data ?? [])
+          .filter(
+            (entry) =>
+              entry.expense_id !== expenseId &&
+              !["rejected", "cancelled"].includes(String(entry.status)),
+          )
+          .reduce(
+            (sum, entry) =>
+              sum + Number(entry.actual_amount ?? entry.amount ?? 0),
+            0,
+          );
+        const fuelForecast = (fuelResult.data ?? []).reduce(
+          (sum, plan) =>
+            sum +
+            Number(
+              plan.actual_quarterly_cost ??
+                plan.quarterly_cost ??
+                plan.estimated_quarterly_cost ??
+                0,
+            ),
+          0,
+        );
+        const remainingBeforeThisExpense =
+          allocation - otherExpenses - fuelForecast;
+
+        if (
+          parsedActualAmount > remainingBeforeThisExpense &&
+          !reviewNote
+        ) {
+          return NextResponse.json(
+            {
+              error:
+                "This actual cost exceeds the nest’s remaining allocation. Add a review note to approve the overrun.",
+            },
+            { status: 409 },
+          );
+        }
+      }
 
       const { error } = await supabase
         .from("app_expense_entries")
@@ -1778,12 +1888,13 @@ export async function POST(request: Request) {
           actual_amount: actualAmount,
           reviewed_by: user.userId,
           reviewed_at: now,
-          review_note: String(body.reviewNote ?? "").trim() || null,
+          review_note: reviewNote || null,
         })
-        .eq("expense_id", expenseId);
+        .eq("expense_id", expenseId)
+        .eq("cycle_id", cycleId);
 
       if (error) throw new Error(error.message);
-      return NextResponse.json({ expenseId, status });
+      return NextResponse.json({ expenseId, status, actualAmount });
     }
 
     if (action === "add_fuel_asset") {

@@ -413,8 +413,11 @@ export function QuarterlyExpenseWorkspace({
       setErrorMessage("This quarter is view-only. Open quarters can be edited.");
       return null;
     }
-    if (action === "review_expense" && selectedCycle?.status !== "in_review") {
-      setErrorMessage("Expense reviews are available while the quarter is in review.");
+    if (
+      action === "review_expense" &&
+      !["open", "in_review"].includes(String(selectedCycle?.status))
+    ) {
+      setErrorMessage("Expense reviews are available while work is open.");
       return null;
     }
 
@@ -1185,8 +1188,8 @@ export function QuarterlyExpenseWorkspace({
             <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <SectionHeading
                 eyebrow="Quarter workflow"
-                title="Review and close the quarter"
-                description="Open quarters are editable. Sending a quarter for review locks its plan until review is complete."
+                title="Quarter status"
+                description="Entries are reviewed individually while the quarter stays open. Close the quarter when all pending entries are resolved."
               />
 
               <div className="flex flex-wrap items-center gap-3">
@@ -1194,8 +1197,9 @@ export function QuarterlyExpenseWorkspace({
                 {(
                   [
                     ["draft", "open", "Open for planning"],
-                    ["open", "in_review", "Send for review"],
-                    ["in_review", "approved", "Approve quarter"],
+                    ["open", "closed", "Close quarter"],
+                    ["in_review", "open", "Reopen for work"],
+                    ["approved", "open", "Reopen for work"],
                     ["approved", "closed", "Close quarter"],
                   ] as const
                 )
@@ -1203,7 +1207,7 @@ export function QuarterlyExpenseWorkspace({
                   .map(([, nextStatus, label]) => (
                     <button
                       type="button"
-                      key={nextStatus}
+                      key={`${selectedCycle.status}-${nextStatus}-${label}`}
                       className={buttonSecondary}
                       disabled={saving}
                       onClick={() =>
@@ -1409,7 +1413,7 @@ export function QuarterlyExpenseWorkspace({
                       </thead>
                       <tbody>
                         {data.historyEntries.map((entry, index) => (
-                          <tr key={`expense-entry-${String(entry.entry_id ?? "unknown")}-${index}`}>
+                          <tr key={`expense-entry-${String(entry.expense_id ?? "unknown")}-${index}`}>
                             <Td>{text(entry.quarter_label || entry.quarter)}</Td>
                             <Td>{nestName(entry.nest_id)}</Td>
                             <Td className="font-semibold text-slate-900">
@@ -1754,7 +1758,7 @@ export function QuarterlyExpenseWorkspace({
                       quotes: quoteDrafts,
                     };
                   },
-                  "Expense activity recorded.",
+                  "Expense submitted for review.",
                 )}
               >
                 <Field label="Nest">
@@ -2033,12 +2037,13 @@ export function QuarterlyExpenseWorkspace({
                       Balance preview
                     </p>
                     <p className="mt-1 text-xs leading-5 text-violet-800">
-                      Nest allocation is shown on the Overview tab. This entry
-                      is saved against the selected nest and quarter.
+                      This request is counted against the nest’s available
+                      balance while pending. The approved actual amount replaces
+                      the request amount in the balance.
                     </p>
                   </div>
                   <button className={buttonPrimary} disabled={saving}>
-                    {saving ? "Saving…" : "Save activity"}
+                    {saving ? "Submitting…" : "Submit for review"}
                   </button>
                 </div>
               </form>
@@ -2068,7 +2073,7 @@ export function QuarterlyExpenseWorkspace({
                   </thead>
                   <tbody>
                     {cycleEntries.map((entry, index) => (
-                      <tr key={`expense-entry-${String(entry.entry_id ?? "unknown")}-${index}`}>
+                      <tr key={`expense-entry-${String(entry.expense_id ?? "unknown")}-${index}`}>
                         <Td className="font-semibold text-slate-900">
                           {nestName(entry.nest_id)}
                         </Td>
@@ -2101,7 +2106,9 @@ export function QuarterlyExpenseWorkspace({
                           <StatusPill status={entry.status} />
                         </Td>
                         <Td>
-                          {canManage && (
+                          {canManage &&
+                          ["open", "in_review"].includes(String(selectedCycle?.status)) &&
+                          ["planned", "in_review"].includes(String(entry.status)) ? (
                             <div className="flex min-w-52 flex-col gap-2">
                               <input
                                 className={inputClass}
@@ -2109,15 +2116,19 @@ export function QuarterlyExpenseWorkspace({
                                 min="0"
                                 step="0.01"
                                 placeholder="Actual amount"
-                                defaultValue={entry.actual_amount ?? ""}
-                                id={`actual-${entry.entry_id}`}
+                                defaultValue={entry.actual_amount ?? entry.amount ?? ""}
+                                id={`actual-${entry.expense_id}`}
                               />
                               <input
                                 className={inputClass}
                                 placeholder="Review note"
                                 defaultValue={entry.review_note ?? ""}
-                                id={`review-note-${entry.entry_id}`}
+                                id={`review-note-${entry.expense_id}`}
                               />
+                              <p className="text-xs leading-5 text-slate-500">
+                                If the actual cost exceeds available allocation,
+                                explain the overrun in the review note.
+                              </p>
                               <div className="flex gap-2">
                                 <button
                                   type="button"
@@ -2130,12 +2141,12 @@ export function QuarterlyExpenseWorkspace({
                                       actualAmount:
                                         (
                                           document.getElementById(
-                                            `actual-${entry.entry_id}`,
+                                            `actual-${entry.expense_id}`,
                                           ) as HTMLInputElement
                                         )?.value || null,
                                       reviewNote: (
                                         document.getElementById(
-                                          `review-note-${entry.entry_id}`,
+                                          `review-note-${entry.expense_id}`,
                                         ) as HTMLInputElement
                                       )?.value,
                                     })
@@ -2153,7 +2164,7 @@ export function QuarterlyExpenseWorkspace({
                                       status: "rejected",
                                       reviewNote: (
                                         document.getElementById(
-                                          `review-note-${entry.entry_id}`,
+                                          `review-note-${entry.expense_id}`,
                                         ) as HTMLInputElement
                                       )?.value,
                                     })
@@ -2163,6 +2174,14 @@ export function QuarterlyExpenseWorkspace({
                                 </button>
                               </div>
                             </div>
+                          ) : (
+                            <span className="text-xs font-semibold text-slate-500">
+                              {entry.status === "approved" || entry.status === "actual"
+                                ? "Reviewed"
+                                : entry.status === "rejected"
+                                  ? "Returned"
+                                  : "No action"}
+                            </span>
                           )}
                         </Td>
                       </tr>
