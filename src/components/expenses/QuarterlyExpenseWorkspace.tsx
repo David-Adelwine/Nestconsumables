@@ -318,6 +318,12 @@ export function QuarterlyExpenseWorkspace({
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [planLineDraft, setPlanLineDraft] = useState<Row | null>(null);
+  const [expenseDraft, setExpenseDraft] = useState({
+    nestId: "",
+    amount: "",
+    quantity: "1",
+    unitCost: "",
+  });
 
   const isFinance = mode === "finance";
   const canManage = Boolean(data.permissions.canManageCountry);
@@ -484,6 +490,14 @@ export function QuarterlyExpenseWorkspace({
           setSuccessMessage(`Quarter workspace created with ${seededTotal} starter rows. Opening it now…`);
           router.push(`/expenses/quarterly/${encodeURIComponent(newCycleId)}`);
         } else {
+          if (action === "add_expense") {
+            setExpenseDraft({
+              nestId: "",
+              amount: "",
+              quantity: "1",
+              unitCost: "",
+            });
+          }
           if (action === "save_plan_line") setPlanLineDraft(null);
           setSuccessMessage(success);
         }
@@ -498,7 +512,7 @@ export function QuarterlyExpenseWorkspace({
 
   const summary = useMemo(() => {
     const allocated = currentAllocations.reduce(
-      (sum, allocation) => sum + numberValue(allocation.allocated_amount),
+      (sum, allocation) => sum + numberValue(allocation.allocation_amount),
       0,
     );
 
@@ -603,281 +617,158 @@ export function QuarterlyExpenseWorkspace({
     return nest ? getNestLabel(nest) : text(nestId);
   }
 
-  function quarterBrowser() {
-    return (
-      <details className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 font-bold text-slate-900 marker:hidden">
-          <span>Browse available quarters</span>
-          <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-bold text-violet-800">
-            {data.cycles.length} {data.cycles.length === 1 ? "quarter" : "quarters"}
-          </span>
-        </summary>
-        <div className="border-t border-slate-100 p-4">
-          {quarterGroups.length ? (
-            <div className="space-y-3">
-              {quarterGroups.map(([year, cycles]) => (
-                <details
-                  key={`quarter-year-${year}`}
-                  className="overflow-hidden rounded-xl border border-slate-200"
-                >
-                  <summary className="flex cursor-pointer list-none items-center justify-between bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 marker:hidden">
-                    <span>Fiscal year {year}</span>
-                    <span className="text-xs font-semibold text-slate-500">
-                      {cycles.length} {cycles.length === 1 ? "quarter" : "quarters"}
-                    </span>
-                  </summary>
-                  <div className="grid gap-2 p-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {cycles.map((cycle) => {
-                      const isCurrent = String(cycle.cycle_id) === cycleId;
-                      return (
-                        <Link
-                          key={`quarter-link-${String(cycle.cycle_id)}`}
-                          href={`/expenses/quarterly/${encodeURIComponent(String(cycle.cycle_id))}`}
-                          className={cx(
-                            "flex items-center justify-between gap-3 rounded-xl border px-4 py-3 transition",
-                            isCurrent
-                              ? "border-violet-300 bg-violet-50 ring-1 ring-violet-200"
-                              : "border-slate-200 bg-white hover:border-violet-200 hover:bg-violet-50/60",
-                          )}
-                        >
-                          <span>
-                            <span className="block font-bold text-slate-900">
-                              Q{cycle.quarter} {isCurrent ? "· Current view" : ""}
-                            </span>
-                            <span className="mt-1 block text-xs text-slate-500">
-                              Open to view this quarter’s plan and activity
-                            </span>
-                          </span>
-                          <span className="flex shrink-0 flex-col items-end gap-2">
-                            <StatusPill status={cycle.status} />
-                            <span className="text-xs font-bold text-violet-800">Open →</span>
-                          </span>
-                        </Link>
-                      );
-                    })}
-                  </div>
-                </details>
-              ))}
-            </div>
-          ) : (
-            <p className="rounded-xl bg-slate-50 px-4 py-5 text-sm text-slate-600">
-              {country
-                ? `No quarters have been created for ${country} yet.`
-                : "Choose a country above to see its available quarters."}
-            </p>
-          )}
-        </div>
-      </details>
-    );
+  function fuelCostForNest(nestId: unknown) {
+    return (data.fuelPlans ?? [])
+      .filter((plan) => String(plan.nest_id) === String(nestId))
+      .reduce(
+        (sum, plan) =>
+          sum +
+          numberValue(
+            plan.actual_quarterly_cost ??
+              plan.quarterly_cost ??
+              plan.estimated_quarterly_cost,
+          ),
+        0,
+      );
   }
 
-  function refreshButton() {
-    return (
-      <button
-        type="button"
-        className={buttonSecondary}
-        onClick={() => void loadData()}
-        disabled={loading || saving}
-      >
-        Refresh data
-      </button>
-    );
+  function activityCostForNest(nestId: unknown) {
+    return cycleEntries
+      .filter(
+        (entry) =>
+          String(entry.nest_id) === String(nestId) &&
+          !["rejected", "cancelled"].includes(String(entry.status)),
+      )
+      .reduce(
+        (sum, entry) =>
+          sum +
+          numberValue(entry.actual_amount ?? entry.amount ?? entry.total_cost),
+        0,
+      );
   }
 
-  if (loading && !data.countries.length) {
-    return (
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="rounded-2xl border border-slate-200 bg-white p-8 text-sm text-slate-500 shadow-sm">
-          Loading quarterly expense workspace…
-        </div>
-      </main>
-    );
-  }
+  const previewQuantity = Number(expenseDraft.quantity || 0);
+  const previewUnitCost = Number(expenseDraft.unitCost || 0);
+  const previewAmount =
+    expenseDraft.amount.trim() !== ""
+      ? Number(expenseDraft.amount)
+      : previewQuantity * previewUnitCost;
+  const previewAllocation = currentAllocations.find(
+    (allocation) => String(allocation.nest_id) === expenseDraft.nestId,
+  );
+  const previewAllocated = numberValue(previewAllocation?.allocation_amount);
+  const previewCommitted = expenseDraft.nestId
+    ? activityCostForNest(expenseDraft.nestId) +
+      fuelCostForNest(expenseDraft.nestId)
+    : 0;
+  const previewRemaining = previewAllocated - previewCommitted;
+  const previewAfterRequest = previewRemaining - numberValue(previewAmount);
 
-  if (!workspaceOnly && mode === "planning") {
-    return (
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <header className="mb-7 overflow-hidden rounded-3xl bg-gradient-to-br from-violet-950 via-violet-900 to-indigo-900 p-6 text-white shadow-xl shadow-violet-950/10 sm:p-8">
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-violet-200">
-            Expense planning
-          </p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">
-            Quarterly workspaces
-          </h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-violet-100 sm:text-base">
-            Create a quarter or open one you’re authorized to view. Each quarter
-            has its own shared plan, activity log, budgets, and fuel requests.
-          </p>
-        </header>
-
-        {(errorMessage || successMessage) && (
-          <div
-            role={errorMessage ? "alert" : "status"}
-            className={cx(
-              "mb-5 rounded-xl border px-4 py-3 text-sm font-medium",
-              errorMessage
-                ? "border-rose-200 bg-rose-50 text-rose-800"
-                : "border-emerald-200 bg-emerald-50 text-emerald-800",
-            )}
-          >
-            {errorMessage || successMessage}
-          </div>
-        )}
-
-        <section className="mb-5 flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="w-full sm:max-w-sm">
-            <Field label="Country workspace">
-              <select
-                className={selectClass}
-                value={country}
-                onChange={(event) => {
-                  const nextCountry = event.target.value;
-                  setCountry(nextCountry);
-                  setCycleId("");
-                  router.replace(
-                    nextCountry
-                      ? `/expenses/dashboard?country=${encodeURIComponent(nextCountry)}`
-                      : "/expenses/dashboard",
-                  );
-                }}
+  function quarterBrowser() {    return (
+    <details className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 font-bold text-slate-900 marker:hidden">
+        <span>Browse available quarters</span>
+        <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-bold text-violet-800">
+          {data.cycles.length} {data.cycles.length === 1 ? "quarter" : "quarters"}
+        </span>
+      </summary>
+      <div className="border-t border-slate-100 p-4">
+        {quarterGroups.length ? (
+          <div className="space-y-3">
+            {quarterGroups.map(([year, cycles]) => (
+              <details
+                key={`quarter-year-${year}`}
+                className="overflow-hidden rounded-xl border border-slate-200"
               >
-                <option value="">Select a country</option>
-                {data.countries.map((item, index) => {
-                  const value = getCountryValue(item);
-                  if (value === null || value === "") return null;
-                  return (
-                    <option
-                      key={`country-${String(value)}-${index}`}
-                      value={String(value)}
-                    >
-                      {getCountryLabel(item, String(value))}
-                    </option>
-                  );
-                })}
-              </select>
-            </Field>
+                <summary className="flex cursor-pointer list-none items-center justify-between bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 marker:hidden">
+                  <span>Fiscal year {year}</span>
+                  <span className="text-xs font-semibold text-slate-500">
+                    {cycles.length} {cycles.length === 1 ? "quarter" : "quarters"}
+                  </span>
+                </summary>
+                <div className="grid gap-2 p-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {cycles.map((cycle) => {
+                    const isCurrent = String(cycle.cycle_id) === cycleId;
+                    return (
+                      <Link
+                        key={`quarter-link-${String(cycle.cycle_id)}`}
+                        href={`/expenses/quarterly/${encodeURIComponent(String(cycle.cycle_id))}`}
+                        className={cx(
+                          "flex items-center justify-between gap-3 rounded-xl border px-4 py-3 transition",
+                          isCurrent
+                            ? "border-violet-300 bg-violet-50 ring-1 ring-violet-200"
+                            : "border-slate-200 bg-white hover:border-violet-200 hover:bg-violet-50/60",
+                        )}
+                      >
+                        <span>
+                          <span className="block font-bold text-slate-900">
+                            Q{cycle.quarter} {isCurrent ? "· Current view" : ""}
+                          </span>
+                          <span className="mt-1 block text-xs text-slate-500">
+                            Open to view this quarter’s plan and activity
+                          </span>
+                        </span>
+                        <span className="flex shrink-0 flex-col items-end gap-2">
+                          <StatusPill status={cycle.status} />
+                          <span className="text-xs font-bold text-violet-800">Open →</span>
+                        </span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </details>
+            ))}
           </div>
-          {refreshButton()}
-        </section>
-
-        {canManage && (
-          <section className="mb-5 rounded-2xl border border-violet-200 bg-white p-5 shadow-sm sm:p-6">
-            <div className="mb-4">
-              <h2 className="text-lg font-bold text-slate-950">Create a quarter</h2>
-              <p className="mt-1 text-sm text-slate-600">
-                Creating it prepares the shared workspace and opens it for your team.
-              </p>
-            </div>
-            <form
-              className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
-              onSubmit={handleForm(
-                "create_cycle",
-                (form) => {
-                  const values = new FormData(form);
-                  return {
-                    fiscal_year: Number(values.get("fiscal_year")),
-                    quarter: values.get("quarter"),
-                    currency_code: values.get("currency_code"),
-                    source_cycle_id: values.get("source_cycle_id") || null,
-                  };
-                },
-                "Quarter created.",
-              )}
-            >
-              <Field label="Fiscal year">
-                <input
-                  className={inputClass}
-                  name="fiscal_year"
-                  type="number"
-                  min="2020"
-                  max="2100"
-                  defaultValue={new Date().getFullYear()}
-                  required
-                />
-              </Field>
-              <Field label="Quarter">
-                <select className={selectClass} name="quarter" defaultValue="1">
-                  <option value="1">Q1</option>
-                  <option value="2">Q2</option>
-                  <option value="3">Q3</option>
-                  <option value="4">Q4</option>
-                </select>
-              </Field>
-              <Field label="Copy plan from (optional)">
-                <select className={selectClass} name="source_cycle_id" defaultValue="">
-                  <option value="">Use the country template</option>
-                  {data.cycles.map((cycle) => (
-                    <option key={`source-${cycle.cycle_id}`} value={String(cycle.cycle_id)}>
-                      {cycle.fiscal_year} · Q{cycle.quarter} · {statusLabel(cycle.status)}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <div className="flex items-end">
-                <button
-                  type="submit"
-                  className={buttonPrimary}
-                  disabled={saving || !country}
-                >
-                  Create and open workspace
-                </button>
-              </div>
-              <input type="hidden" name="currency_code" value={data.currencyCode || ""} />
-            </form>
-          </section>
-        )}
-
-        <section className="mb-3">
-          <h2 className="mb-1 text-xl font-bold text-slate-950">Past and current quarters</h2>
-          <p className="mb-4 text-sm text-slate-600">
-            Quarters are grouped by year and collapsed until you choose one. Open quarters allow edits; completed quarters remain available to review.
+        ) : (
+          <p className="rounded-xl bg-slate-50 px-4 py-5 text-sm text-slate-600">
+            {country
+              ? `No quarters have been created for ${country} yet.`
+              : "Choose a country above to see its available quarters."}
           </p>
-          {quarterBrowser()}
-        </section>
-      </main>
-    );
-  }
+        )}
+      </div>
+    </details>
+  );
+}
 
+function refreshButton() {
+  return (
+    <button
+      type="button"
+      className={buttonSecondary}
+      onClick={() => void loadData()}
+      disabled={loading || saving}
+    >
+      Refresh data
+    </button>
+  );
+}
+
+if (loading && !data.countries.length) {
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-7 overflow-hidden rounded-3xl bg-gradient-to-br from-violet-950 via-violet-900 to-indigo-900 p-6 text-white shadow-xl shadow-violet-950/10 sm:p-8">
-        <div className="flex flex-wrap items-start justify-between gap-6">
-          <div className="max-w-3xl">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-violet-200">
-              {isFinance ? "Finance workspace" : "Nest expense workspace"}
-            </p>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">
-              {workspaceOnly ? "Quarter expense workspace" : "Quarterly expense planning"}
-            </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-violet-100 sm:text-base">
-              Plan quarterly allocations, record activities and vendor costs,
-              and follow how each nest is using its available amount.
-            </p>
-          </div>
-
-          <div className="min-w-52 rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur">
-            <p className="text-xs font-semibold uppercase tracking-wide text-violet-200">
-              Selected quarter
-            </p>
-            <p className="mt-1 text-lg font-bold">
-              {selectedCycle
-                ? `${selectedCycle.fiscal_year} · ${selectedCycle.quarter}`
-                : "No quarter selected"}
-            </p>
-            {selectedCycle && (
-              <div className="mt-2">
-                <StatusPill status={selectedCycle.status} />
-              </div>
-            )}
-          </div>
-        </div>
+      <div className="rounded-2xl border border-slate-200 bg-white p-8 text-sm text-slate-500 shadow-sm">
+        Loading quarterly expense workspace…
       </div>
+    </main>
+  );
+}
 
-      {selectedCycle && selectedCycle.status !== "open" && (
-        <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          This quarter is <strong>{statusLabel(selectedCycle.status)}</strong> and is view-only. Select an open quarter to edit its plan or activities.
-        </div>
-      )}
+if (!workspaceOnly && mode === "planning") {
+  return (
+    <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <header className="mb-7 overflow-hidden rounded-3xl bg-gradient-to-br from-violet-950 via-violet-900 to-indigo-900 p-6 text-white shadow-xl shadow-violet-950/10 sm:p-8">
+        <p className="text-xs font-bold uppercase tracking-[0.18em] text-violet-200">
+          Expense planning
+        </p>
+        <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">
+          Quarterly workspaces
+        </h1>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-violet-100 sm:text-base">
+          Create a quarter or open one you’re authorized to view. Each quarter
+          has its own shared plan, activity log, budgets, and fuel requests.
+        </p>
+      </header>
 
       {(errorMessage || successMessage) && (
         <div
@@ -893,772 +784,595 @@ export function QuarterlyExpenseWorkspace({
         </div>
       )}
 
-      {workspaceOnly && (
-        <div className="mb-5 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <Link
-              href={`/expenses/dashboard?country=${encodeURIComponent(country)}`}
-              className={buttonSecondary}
+      <section className="mb-5 flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="w-full sm:max-w-sm">
+          <Field label="Country workspace">
+            <select
+              className={selectClass}
+              value={country}
+              onChange={(event) => {
+                const nextCountry = event.target.value;
+                setCountry(nextCountry);
+                setCycleId("");
+                router.replace(
+                  nextCountry
+                    ? `/expenses/dashboard?country=${encodeURIComponent(nextCountry)}`
+                    : "/expenses/dashboard",
+                );
+              }}
             >
-              ← Quarter list and creation
-            </Link>
-            {selectedCycle && (
-              <p className="text-sm font-semibold text-slate-600">
-                {country} · {selectedCycle.fiscal_year} · Q{selectedCycle.quarter}
-              </p>
-            )}
-          </div>
-          {quarterBrowser()}
-        </div>
-      )}
-
-      {!workspaceOnly && (
-      <section className="mb-6 grid gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4">
-        <Field label="Country">
-          <select
-            className={selectClass}
-            value={country}
-            onChange={(event) => {
-              setCountry(event.target.value);
-              setCycleId("");
-            }}
-          >
-            <option value="">Select a country</option>
-            {data.countries.map((item, index) => {
-              const value = getCountryValue(item);
-
-              if (value === null || value === "") return null;
-
-              return (
-                <option
-                  key={`country-${String(value)}-${index}`}
-                  value={String(value)}
-                >
-                  {getCountryLabel(item, String(value))}
-                </option>
-              );
-            })}
-          </select>
-        </Field>
-
-        <Field label="View quarter">
-          <select
-            className={selectClass}
-            value={cycleId}
-            onChange={(event) => setCycleId(event.target.value)}
-          >
-            <option value="">Select a quarter</option>
-            {data.cycles.map((cycle, index) => (
-              <option
-                key={`cycle-${String(cycle.cycle_id ?? "unknown")}-${index}`}
-                value={String(cycle.cycle_id ?? "")}
-              >
-                {cycle.fiscal_year} · {cycle.quarter} ·{" "}
-                {statusLabel(cycle.status)}
-              </option>
-            ))}
-          </select>
-        </Field>
-
-        <div className="flex items-end">
-          {canManage && (
-            <form
-              className="grid w-full grid-cols-1 gap-2 sm:grid-cols-4"
-              onSubmit={handleForm(
-                "create_cycle",
-                (form) => {
-                  const values = new FormData(form);
-
-                  return {
-                    fiscal_year: Number(values.get("fiscal_year")),
-                    quarter: values.get("quarter"),
-                    currency_code: values.get("currency_code"),
-                  };
-                },
-                "Quarter created.",
-              )}
-            >
-              <Field label="Year">
-                <input
-                  className={inputClass}
-                  name="fiscal_year"
-                  type="number"
-                  min="2020"
-                  max="2100"
-                  defaultValue={new Date().getFullYear()}
-                  required
-                />
-              </Field>
-
-              <Field label="New quarter">
-                <select
-                  className={selectClass}
-                  name="quarter"
-                  defaultValue="1"
-                >
-                  <option value="1">Q1</option>
-                  <option value="2">Q2</option>
-                  <option value="3">Q3</option>
-                  <option value="4">Q4</option>
-                </select>
-              </Field>
-
-              <Field label="Copy plan from">
-                <select
-                  className={selectClass}
-                  name="source_cycle_id"
-                  defaultValue=""
-                >
-                  <option value="">Start without a copied plan</option>
-                  {data.cycles.map((cycle, index) => (
-                    <option
-                      key={`source-cycle-${String(cycle.cycle_id ?? "unknown")}-${index}`}
-                      value={String(cycle.cycle_id ?? "")}
-                    >
-                      {cycle.fiscal_year} · Q{cycle.quarter} · {statusLabel(cycle.status)}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
-              <div className="flex items-end">
-                <button
-                  className={buttonPrimary}
-                  disabled={saving || !country}
-                >
-                  Create &amp; open
-                </button>
-              </div>
-
-              <input
-                type="hidden"
-                name="currency_code"
-                value={data.currencyCode || ""}
-              />
-            </form>
-          )}
-        </div>
-
-        <div className="flex items-end justify-end">{refreshButton()}</div>
-      </section>
-      )}
-
-      {!workspaceOnly && selectedCycle && (
-        <div className="mb-5 flex justify-end">
-          <Link
-            href={`/expenses/quarterly/${encodeURIComponent(String(selectedCycle.cycle_id))}`}
-            className={buttonPrimary}
-          >
-            Open quarter workspace →
-          </Link>
-        </div>
-      )}
-
-      <nav
-        aria-label="Expense workspace sections"
-        className="mb-6 flex gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm"
-      >
-        {tabs.map((tab) => (
-          <button
-            type="button"
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={cx(
-              "whitespace-nowrap rounded-xl px-4 py-2.5 text-sm font-bold transition",
-              activeTab === tab.id
-                ? "bg-violet-700 text-white shadow-sm"
-                : "text-slate-600 hover:bg-slate-100 hover:text-slate-950",
-            )}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </nav>
-
-      {activeTab === "overview" && (
-        <div className="space-y-7">
-          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Card
-              title="Nest allocations"
-              value={money(summary.allocated, currency)}
-              detail="Total allocated across the selected quarter"
-              accent="violet"
-            />
-            <Card
-              title="Recorded expenses"
-              value={money(summary.spent, currency)}
-              detail="Submitted and approved expense entries"
-              accent="blue"
-            />
-            <Card
-              title="Fuel plan"
-              value={money(summary.fuelForecast, currency)}
-              detail="Forecast, or recorded actual fuel cost"
-              accent="amber"
-            />
-            <Card
-              title="Unallocated balance"
-              value={money(summary.remaining, currency)}
-              detail="Allocations less expenses and fuel plan"
-              accent={summary.remaining < 0 ? "amber" : "emerald"}
-            />
-          </section>
-
-          {canManage && (
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <SectionHeading
-                eyebrow="Country planning"
-                title="Allocate the quarter to each nest"
-                description="Enter the amount each nest should organise its quarterly expenses around."
-              />
-
-              {!selectedCycle ? (
-                <EmptyState>
-                  Create or select a quarter before setting nest allocations.
-                </EmptyState>
-              ) : (
-                <form
-                  onSubmit={handleForm(
-                    "save_allocations",
-                    (form) => {
-                      const values = new FormData(form);
-                      const allocations = data.nests
-                        .map((nest) => {
-                          const nestId = getNestId(nest);
-                          if (nestId === null) return null;
-
-                          return {
-                            nest_id: nestId,
-                            allocated_amount: Number(
-                              values.get(`allocation_${nestId}`) || 0,
-                            ),
-                          };
-                        })
-                        .filter((allocation) => allocation !== null);
-
-                      return { allocations };
-                    },
-                    "Nest allocations saved.",
-                  )}
-                >
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {data.nests.map((nest, index) => {
-                      const nestId = getNestId(nest);
-                      if (nestId === null) return null;
-
-                      const allocation = currentAllocations.find(
-                        (row) => String(row.nest_id) === String(nestId),
-                      );
-
-                      return (
-                        <Field
-                          key={`nest-allocation-${String(nestId)}-${index}`}
-                          label={getNestLabel(nest)}
-                        >
-                          <div className="relative">
-                            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
-                              {currency}
-                            </span>
-                            <input
-                              className={`${inputClass} pl-14`}
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              name={`allocation_${nestId}`}
-                              defaultValue={allocation?.allocated_amount ?? 0}
-                            />
-                          </div>
-                        </Field>
-                      );
-                    })}
-                  </div>
-
-                  <button
-                    className={`${buttonPrimary} mt-4`}
-                    disabled={saving}
+              <option value="">Select a country</option>
+              {data.countries.map((item, index) => {
+                const value = getCountryValue(item);
+                if (value === null || value === "") return null;
+                return (
+                  <option
+                    key={`country-${String(value)}-${index}`}
+                    value={String(value)}
                   >
-                    Save allocations
-                  </button>
-                </form>
-              )}
-            </section>
-          )}
-
-          {canManage && selectedCycle && (
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <SectionHeading
-                eyebrow="Quarter workflow"
-                title="Quarter status"
-                description="Entries are reviewed individually while the quarter stays open. Close the quarter when all pending entries are resolved."
-              />
-
-              <div className="flex flex-wrap items-center gap-3">
-                <StatusPill status={selectedCycle.status} />
-                {(
-                  [
-                    ["draft", "open", "Open for planning"],
-                    ["open", "closed", "Close quarter"],
-                    ["in_review", "open", "Reopen for work"],
-                    ["approved", "open", "Reopen for work"],
-                    ["approved", "closed", "Close quarter"],
-                  ] as const
-                )
-                  .filter(([current]) => current === selectedCycle.status)
-                  .map(([, nextStatus, label]) => (
-                    <button
-                      type="button"
-                      key={`${selectedCycle.status}-${nextStatus}-${label}`}
-                      className={buttonSecondary}
-                      disabled={saving}
-                      onClick={() =>
-                        void submitAction("set_cycle_status", { status: nextStatus })
-                      }
-                    >
-                      {label}
-                    </button>
-                  ))}
-              </div>
-            </section>
-          )}
-
-          <section className="grid gap-6 xl:grid-cols-2">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <SectionHeading
-                eyebrow="Quarter activity"
-                title="Spending by category"
-                description="Recorded entries grouped by summary category."
-              />
-
-              {entriesByGroup.length ? (
-                <div className="space-y-4">
-                  {entriesByGroup.map(([group, amount]) => {
-                    const max = Math.max(
-                      ...entriesByGroup.map((entry) => entry[1]),
-                      1,
-                    );
-                    const percent = Math.max(3, (amount / max) * 100);
-
-                    return (
-                      <div key={group}>
-                        <div className="mb-1.5 flex justify-between gap-3 text-sm">
-                          <span className="font-semibold text-slate-700">
-                            {group}
-                          </span>
-                          <span className="font-bold text-slate-900">
-                            {money(amount, currency)}
-                          </span>
-                        </div>
-                        <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
-                          <div
-                            className="h-full rounded-full bg-violet-600"
-                            style={{ width: `${percent}%` }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <EmptyState>
-                  No expense entries have been recorded for this quarter.
-                </EmptyState>
-              )}
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <SectionHeading
-                eyebrow="Nest allocations"
-                title="Allocation and balance"
-                description="Compare each nest’s allocation with its recorded activity."
-              />
-
-              {currentAllocations.length ? (
-                <TableWrap>
-                  <table className="min-w-full border-collapse">
-                    <thead>
-                      <tr>
-                        <Th>Nest</Th>
-                        <Th>Allocated</Th>
-                        <Th>Recorded</Th>
-                        <Th>Available</Th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {currentAllocations.map((allocation, index) => {
-                        const spent = cycleEntries
-                          .filter(
-                            (entry) =>
-                              String(entry.nest_id) ===
-                                String(allocation.nest_id) &&
-                              !["rejected", "cancelled"].includes(
-                                String(entry.status),
-                              ),
-                          )
-                          .reduce(
-                            (sum, entry) =>
-                              sum +
-                              numberValue(
-                                entry.actual_amount ??
-                                  entry.amount ??
-                                  entry.total_cost,
-                              ),
-                            0,
-                          );
-
-                        const allocated = numberValue(
-                          allocation.allocated_amount,
-                        );
-
-                        return (
-                          <tr
-                            key={`allocation-${String(
-                              allocation.allocation_id ?? allocation.nest_id ?? "unknown",
-                            )}-${index}`}
-                          >
-                            <Td className="font-semibold text-slate-900">
-                              {nestName(allocation.nest_id)}
-                            </Td>
-                            <Td>{money(allocated, currency)}</Td>
-                            <Td>{money(spent, currency)}</Td>
-                            <Td
-                              className={
-                                allocated - spent < 0
-                                  ? "font-bold text-rose-700"
-                                  : "font-bold text-emerald-700"
-                              }
-                            >
-                              {money(allocated - spent, currency)}
-                            </Td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </TableWrap>
-              ) : (
-                <EmptyState>
-                  No nest allocations are set for this quarter.
-                </EmptyState>
-              )}
-            </div>
-          </section>
-
-          {isFinance && (
-            <>
-              <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <SectionHeading
-                  eyebrow="Country comparison"
-                  title="Compare country allocations"
-                  description="USD comparison uses each quarter’s stored FX rate. Check the source currency before making budget decisions."
-                />
-
-                {data.countryComparison.length ? (
-                  <TableWrap>
-                    <table className="min-w-full border-collapse">
-                      <thead>
-                        <tr>
-                          <Th>Country</Th>
-                          <Th>Currency</Th>
-                          <Th>Allocated</Th>
-                          <Th>Recorded</Th>
-                          <Th>Remaining</Th>
-                          <Th>Allocated USD</Th>
-                          <Th>Recorded USD</Th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {data.countryComparison.map((row, index) => (
-                          <tr key={`country-comparison-${String(row.country ?? "unknown")}-${index}`}>
-                            <Td className="font-semibold text-slate-900">
-                              {text(row.country_name || row.country)}
-                            </Td>
-                            <Td>{text(row.currencyCode || row.currency_code)}</Td>
-                            <Td>{money(row.allocated, row.currencyCode)}</Td>
-                            <Td>{money(row.committed, row.currencyCode)}</Td>
-                            <Td>{money(row.remaining, row.currencyCode)}</Td>
-                            <Td>{money(row.allocatedUsd, "USD")}</Td>
-                            <Td>{money(row.committedUsd, "USD")}</Td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </TableWrap>
-                ) : (
-                  <EmptyState>
-                    No country comparison data is available.
-                  </EmptyState>
-                )}
-              </section>
-
-              <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <SectionHeading
-                  eyebrow="History"
-                  title="Previous quarter activity"
-                  description="Review prior expense entries alongside the current plan."
-                />
-
-                {data.historyEntries.length ? (
-                  <TableWrap>
-                    <table className="min-w-full border-collapse">
-                      <thead>
-                        <tr>
-                          <Th>Quarter</Th>
-                          <Th>Nest</Th>
-                          <Th>Activity</Th>
-                          <Th>Vendor</Th>
-                          <Th>Category / GL</Th>
-                          <Th>Amount</Th>
-                          <Th>Status</Th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {data.historyEntries.map((entry, index) => (
-                          <tr key={`expense-entry-${String(entry.expense_id ?? "unknown")}-${index}`}>
-                            <Td>{text(entry.quarter_label || entry.quarter)}</Td>
-                            <Td>{nestName(entry.nest_id)}</Td>
-                            <Td className="font-semibold text-slate-900">
-                              {text(entry.description)}
-                            </Td>
-                            <Td>{text(entry.vendor_name)}</Td>
-                            <Td>
-                              {text(
-                                entry.summary_group ||
-                                  entry.gl_code ||
-                                  entry.category,
-                              )}
-                            </Td>
-                            <Td>
-                              {money(
-                                entry.actual_amount ??
-                                  entry.amount ??
-                                  entry.total_cost,
-                                entry.currency_code || currency,
-                              )}
-                            </Td>
-                            <Td>
-                              <StatusPill status={entry.status} />
-                            </Td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </TableWrap>
-                ) : (
-                  <EmptyState>
-                    No prior quarter entries are available for this country.
-                  </EmptyState>
-                )}
-              </section>
-            </>
-          )}
+                    {getCountryLabel(item, String(value))}
+                  </option>
+                );
+              })}
+            </select>
+          </Field>
         </div>
+        {refreshButton()}
+      </section>
+
+      {canManage && (
+        <section className="mb-5 rounded-2xl border border-violet-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="mb-4">
+            <h2 className="text-lg font-bold text-slate-950">Create a quarter</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Creating it prepares the shared workspace and opens it for your team.
+            </p>
+          </div>
+          <form
+            className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+            onSubmit={handleForm(
+              "create_cycle",
+              (form) => {
+                const values = new FormData(form);
+                return {
+                  fiscal_year: Number(values.get("fiscal_year")),
+                  quarter: values.get("quarter"),
+                  currency_code: values.get("currency_code"),
+                  source_cycle_id: values.get("source_cycle_id") || null,
+                };
+              },
+              "Quarter created.",
+            )}
+          >
+            <Field label="Fiscal year">
+              <input
+                className={inputClass}
+                name="fiscal_year"
+                type="number"
+                min="2020"
+                max="2100"
+                defaultValue={new Date().getFullYear()}
+                required
+              />
+            </Field>
+            <Field label="Quarter">
+              <select className={selectClass} name="quarter" defaultValue="1">
+                <option value="1">Q1</option>
+                <option value="2">Q2</option>
+                <option value="3">Q3</option>
+                <option value="4">Q4</option>
+              </select>
+            </Field>
+            <Field label="Copy plan from (optional)">
+              <select className={selectClass} name="source_cycle_id" defaultValue="">
+                <option value="">Use the country template</option>
+                {data.cycles.map((cycle) => (
+                  <option key={`source-${cycle.cycle_id}`} value={String(cycle.cycle_id)}>
+                    {cycle.fiscal_year} · Q{cycle.quarter} · {statusLabel(cycle.status)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <div className="flex items-end">
+              <button
+                type="submit"
+                className={buttonPrimary}
+                disabled={saving || !country}
+              >
+                Create and open workspace
+              </button>
+            </div>
+            <input type="hidden" name="currency_code" value={data.currencyCode || ""} />
+          </form>
+        </section>
       )}
 
-      {activeTab === "plan" && (
-        <div className="space-y-6">
+      <section className="mb-3">
+        <h2 className="mb-1 text-xl font-bold text-slate-950">Past and current quarters</h2>
+        <p className="mb-4 text-sm text-slate-600">
+          Quarters are grouped by year and collapsed until you choose one. Open quarters allow edits; completed quarters remain available to review.
+        </p>
+        {quarterBrowser()}
+      </section>
+    </main>
+  );
+}
+
+return (
+  <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+    <div className="mb-7 overflow-hidden rounded-3xl bg-gradient-to-br from-violet-950 via-violet-900 to-indigo-900 p-6 text-white shadow-xl shadow-violet-950/10 sm:p-8">
+      <div className="flex flex-wrap items-start justify-between gap-6">
+        <div className="max-w-3xl">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-violet-200">
+            {isFinance ? "Finance workspace" : "Nest expense workspace"}
+          </p>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">
+            {workspaceOnly ? "Quarter expense workspace" : "Quarterly expense planning"}
+          </h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-violet-100 sm:text-base">
+            Plan quarterly allocations, record activities and vendor costs,
+            and follow how each nest is using its available amount.
+          </p>
+        </div>
+
+        <div className="min-w-52 rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur">
+          <p className="text-xs font-semibold uppercase tracking-wide text-violet-200">
+            Selected quarter
+          </p>
+          <p className="mt-1 text-lg font-bold">
+            {selectedCycle
+              ? `${selectedCycle.fiscal_year} · ${selectedCycle.quarter}`
+              : "No quarter selected"}
+          </p>
+          {selectedCycle && (
+            <div className="mt-2">
+              <StatusPill status={selectedCycle.status} />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+
+    {selectedCycle && selectedCycle.status !== "open" && (
+      <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        This quarter is <strong>{statusLabel(selectedCycle.status)}</strong> and is view-only. Select an open quarter to edit its plan or activities.
+      </div>
+    )}
+
+    {(errorMessage || successMessage) && (
+      <div
+        role={errorMessage ? "alert" : "status"}
+        className={cx(
+          "mb-5 rounded-xl border px-4 py-3 text-sm font-medium",
+          errorMessage
+            ? "border-rose-200 bg-rose-50 text-rose-800"
+            : "border-emerald-200 bg-emerald-50 text-emerald-800",
+        )}
+      >
+        {errorMessage || successMessage}
+      </div>
+    )}
+
+    {workspaceOnly && (
+      <div className="mb-5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Link
+            href={`/expenses/dashboard?country=${encodeURIComponent(country)}`}
+            className={buttonSecondary}
+          >
+            ← Quarter list and creation
+          </Link>
+          {selectedCycle && (
+            <p className="text-sm font-semibold text-slate-600">
+              {country} · {selectedCycle.fiscal_year} · Q{selectedCycle.quarter}
+            </p>
+          )}
+        </div>
+        {quarterBrowser()}
+      </div>
+    )}
+
+    {!workspaceOnly && (
+    <section className="mb-6 grid gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4">
+      <Field label="Country">
+        <select
+          className={selectClass}
+          value={country}
+          onChange={(event) => {
+            setCountry(event.target.value);
+            setCycleId("");
+          }}
+        >
+          <option value="">Select a country</option>
+          {data.countries.map((item, index) => {
+            const value = getCountryValue(item);
+
+            if (value === null || value === "") return null;
+
+            return (
+              <option
+                key={`country-${String(value)}-${index}`}
+                value={String(value)}
+              >
+                {getCountryLabel(item, String(value))}
+              </option>
+            );
+          })}
+        </select>
+      </Field>
+
+      <Field label="View quarter">
+        <select
+          className={selectClass}
+          value={cycleId}
+          onChange={(event) => setCycleId(event.target.value)}
+        >
+          <option value="">Select a quarter</option>
+          {data.cycles.map((cycle, index) => (
+            <option
+              key={`cycle-${String(cycle.cycle_id ?? "unknown")}-${index}`}
+              value={String(cycle.cycle_id ?? "")}
+            >
+              {cycle.fiscal_year} · {cycle.quarter} ·{" "}
+              {statusLabel(cycle.status)}
+            </option>
+          ))}
+        </select>
+      </Field>
+
+      <div className="flex items-end">
+        {canManage && (
+          <form
+            className="grid w-full grid-cols-1 gap-2 sm:grid-cols-4"
+            onSubmit={handleForm(
+              "create_cycle",
+              (form) => {
+                const values = new FormData(form);
+
+                return {
+                  fiscal_year: Number(values.get("fiscal_year")),
+                  quarter: values.get("quarter"),
+                  currency_code: values.get("currency_code"),
+                };
+              },
+              "Quarter created.",
+            )}
+          >
+            <Field label="Year">
+              <input
+                className={inputClass}
+                name="fiscal_year"
+                type="number"
+                min="2020"
+                max="2100"
+                defaultValue={new Date().getFullYear()}
+                required
+              />
+            </Field>
+
+            <Field label="New quarter">
+              <select
+                className={selectClass}
+                name="quarter"
+                defaultValue="1"
+              >
+                <option value="1">Q1</option>
+                <option value="2">Q2</option>
+                <option value="3">Q3</option>
+                <option value="4">Q4</option>
+              </select>
+            </Field>
+
+            <Field label="Copy plan from">
+              <select
+                className={selectClass}
+                name="source_cycle_id"
+                defaultValue=""
+              >
+                <option value="">Start without a copied plan</option>
+                {data.cycles.map((cycle, index) => (
+                  <option
+                    key={`source-cycle-${String(cycle.cycle_id ?? "unknown")}-${index}`}
+                    value={String(cycle.cycle_id ?? "")}
+                  >
+                    {cycle.fiscal_year} · Q{cycle.quarter} · {statusLabel(cycle.status)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <div className="flex items-end">
+              <button
+                className={buttonPrimary}
+                disabled={saving || !country}
+              >
+                Create &amp; open
+              </button>
+            </div>
+
+            <input
+              type="hidden"
+              name="currency_code"
+              value={data.currencyCode || ""}
+            />
+          </form>
+        )}
+      </div>
+
+      <div className="flex items-end justify-end">{refreshButton()}</div>
+    </section>
+    )}
+
+    {!workspaceOnly && selectedCycle && (
+      <div className="mb-5 flex justify-end">
+        <Link
+          href={`/expenses/quarterly/${encodeURIComponent(String(selectedCycle.cycle_id))}`}
+          className={buttonPrimary}
+        >
+          Open quarter workspace →
+        </Link>
+      </div>
+    )}
+
+    <nav
+      aria-label="Expense workspace sections"
+      className="mb-6 flex gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm"
+    >
+      {tabs.map((tab) => (
+        <button
+          type="button"
+          key={tab.id}
+          onClick={() => setActiveTab(tab.id)}
+          className={cx(
+            "whitespace-nowrap rounded-xl px-4 py-2.5 text-sm font-bold transition",
+            activeTab === tab.id
+              ? "bg-violet-700 text-white shadow-sm"
+              : "text-slate-600 hover:bg-slate-100 hover:text-slate-950",
+          )}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </nav>
+
+    {activeTab === "overview" && (
+      <div className="space-y-7">
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <Card
+            title="Nest allocations"
+            value={money(summary.allocated, currency)}
+            detail="Total allocated across the selected quarter"
+            accent="violet"
+          />
+          <Card
+            title="Recorded expenses"
+            value={money(summary.spent, currency)}
+            detail="Submitted and approved expense entries"
+            accent="blue"
+          />
+          <Card
+            title="Fuel plan"
+            value={money(summary.fuelForecast, currency)}
+            detail="Forecast, or recorded actual fuel cost"
+            accent="amber"
+          />
+          <Card
+            title="Unallocated balance"
+            value={money(summary.remaining, currency)}
+            detail="Allocations less expenses and fuel plan"
+            accent={summary.remaining < 0 ? "amber" : "emerald"}
+          />
+        </section>
+
+        {canManage && (
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <SectionHeading
-              eyebrow="Quarter plan"
-              title={planLineDraft ? "Edit plan line" : "Add a plan line"}
-              description="Capture the spreadsheet row before it becomes an expense activity. Vendor and cost may stay blank until the nest confirms them."
-              action={planLineDraft ? (
-                <button
-                  type="button"
-                  className={buttonSecondary}
-                  onClick={() => setPlanLineDraft(null)}
-                >
-                  Cancel edit
-                </button>
-              ) : undefined}
+              eyebrow="Country planning"
+              title="Allocate the quarter to each nest"
+              description="Enter the amount each nest should organise its quarterly expenses around."
             />
 
             {!selectedCycle ? (
-              <EmptyState>Select a quarter to work with its plan.</EmptyState>
-            ) : !canEditCycle ? (
-              <EmptyState>This quarter is view-only. Select an open quarter to edit plan lines.</EmptyState>
+              <EmptyState>
+                Create or select a quarter before setting nest allocations.
+              </EmptyState>
             ) : (
               <form
-                key={String(planLineDraft?.plan_line_id ?? "new-plan-line")}
-                className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
                 onSubmit={handleForm(
-                  "save_plan_line",
+                  "save_allocations",
                   (form) => {
                     const values = new FormData(form);
-                    const nestId = String(values.get("nest_id") || "");
-                    return {
-                      plan_line_id: planLineDraft?.plan_line_id ?? null,
-                      scope_type: values.get("scope_type"),
-                      scope_label: values.get("scope_label"),
-                      nest_id: nestId || null,
-                      department: values.get("department"),
-                      team: values.get("team"),
-                      gl_code: values.get("gl_code"),
-                      category: values.get("category"),
-                      expense_type: values.get("expense_type"),
-                      line_type: values.get("line_type"),
-                      item_code: values.get("item_code"),
-                      description: values.get("description"),
-                      unit_measure: values.get("unit_measure"),
-                      planned_quantity: values.get("planned_quantity"),
-                      planned_unit_cost: values.get("planned_unit_cost"),
-                      planned_amount: values.get("planned_amount"),
-                      vendor_id: values.get("vendor_id") || null,
-                      vendor_name_snapshot: values.get("vendor_name_snapshot"),
-                      blanket_po: values.get("blanket_po"),
-                      notes: values.get("notes"),
-                    };
+                    const allocations = data.nests
+                      .map((nest) => {
+                        const nestId = getNestId(nest);
+                        if (nestId === null) return null;
+
+                        return {
+                          nest_id: nestId,
+                          allocated_amount: Number(
+                            values.get(`allocation_${nestId}`) || 0,
+                          ),
+                        };
+                      })
+                      .filter((allocation) => allocation !== null);
+
+                    return { allocations };
                   },
-                  "Plan line saved.",
+                  "Nest allocations saved.",
                 )}
               >
-                <Field label="Scope">
-                  <select
-                    className={selectClass}
-                    name="scope_type"
-                    defaultValue={planLineDraft?.scope_type ?? "nest"}
-                  >
-                    <option value="nest">Nest</option>
-                    {canManage && <option value="country">Country-wide</option>}
-                    {canManage && <option value="hq">HQ</option>}
-                    {canManage && <option value="central">Central</option>}
-                    {canManage && <option value="donor_program">Donor program</option>}
-                    {canManage && <option value="other">Other</option>}
-                  </select>
-                </Field>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {data.nests.map((nest, index) => {
+                    const nestId = getNestId(nest);
+                    if (nestId === null) return null;
 
-                <Field label="Nest">
-                  <select
-                    className={selectClass}
-                    name="nest_id"
-                    defaultValue={String(planLineDraft?.nest_id ?? "")}
-                  >
-                    <option value="">Select nest for nest-scoped line</option>
-                    {data.nests.map((nest, index) => {
-                      const nestId = getNestId(nest);
-                      if (nestId === null) return null;
-                      if (!canManage && !canRecordNestIds.includes(String(nestId))) return null;
-                      return (
-                        <option key={`plan-nest-${String(nestId)}-${index}`} value={String(nestId)}>
-                          {getNestLabel(nest)}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </Field>
+                    const allocation = currentAllocations.find(
+                      (row) => String(row.nest_id) === String(nestId),
+                    );
 
-                <Field label="Scope label">
-                  <input className={inputClass} name="scope_label" defaultValue={planLineDraft?.scope_label ?? ""} placeholder="Optional country or program label" />
-                </Field>
-                <Field label="Department">
-                  <input className={inputClass} name="department" defaultValue={planLineDraft?.department ?? ""} />
-                </Field>
-                <Field label="Team">
-                  <input className={inputClass} name="team" defaultValue={planLineDraft?.team ?? ""} />
-                </Field>
-                <Field label="GL code">
-                  <select className={selectClass} name="gl_code" defaultValue={planLineDraft?.gl_code ?? ""}>
-                    <option value="">Select GL code</option>
-                    {data.glCodes.map((code, index) => (
-                      <option key={`plan-gl-${String(code.gl_code ?? "unknown")}-${index}`} value={String(code.gl_code)}>
-                        {code.gl_code} · {code.description}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Category">
-                  <input className={inputClass} name="category" defaultValue={planLineDraft?.category ?? ""} />
-                </Field>
-                <Field label="Expense type">
-                  <select className={selectClass} name="expense_type" defaultValue={planLineDraft?.expense_type ?? ""}>
-                    <option value="">Select type</option>
-                    <option value="recurring">Recurring</option>
-                    <option value="one_off">One-off</option>
-                    <option value="service_utility">Service / utility</option>
-                    <option value="fuel">Fuel</option>
-                    <option value="travel">Travel</option>
-                    <option value="other">Other</option>
-                  </select>
-                </Field>
-                <Field label="Plan line type">
-                  <input className={inputClass} name="line_type" defaultValue={planLineDraft?.line_type ?? ""} placeholder="Purchase, NTE Budget, Service…" />
-                </Field>
-                <Field label="Item code">
-                  <input className={inputClass} name="item_code" defaultValue={planLineDraft?.item_code ?? ""} />
-                </Field>
-                <Field label="Description">
-                  <input className={inputClass} name="description" defaultValue={planLineDraft?.description ?? ""} required />
-                </Field>
-                <Field label="Unit">
-                  <input className={inputClass} name="unit_measure" defaultValue={planLineDraft?.unit_measure ?? ""} placeholder="Each, litre, month…" />
-                </Field>
-                <Field label="Planned quantity">
-                  <input className={inputClass} name="planned_quantity" type="number" min="0" step="0.01" defaultValue={planLineDraft?.planned_quantity ?? ""} />
-                </Field>
-                <Field label="Planned unit cost">
-                  <input className={inputClass} name="planned_unit_cost" type="number" min="0" step="0.01" defaultValue={planLineDraft?.planned_unit_cost ?? ""} />
-                </Field>
-                <Field label="Planned total">
-                  <input className={inputClass} name="planned_amount" type="number" min="0" step="0.01" defaultValue={planLineDraft?.planned_amount ?? ""} />
-                </Field>
-                <Field label="Vendor">
-                  <select className={selectClass} name="vendor_id" defaultValue={String(planLineDraft?.vendor_id ?? "")}>
-                    <option value="">Vendor not selected yet</option>
-                    {data.vendors.map((vendor, index) => (
-                      <option key={`plan-vendor-${String(vendor.vendor_id ?? "unknown")}-${index}`} value={String(vendor.vendor_id)}>
-                        {vendor.vendor_name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Vendor name snapshot">
-                  <input className={inputClass} name="vendor_name_snapshot" defaultValue={planLineDraft?.vendor_name_snapshot ?? ""} placeholder="Use when vendor is not in catalog yet" />
-                </Field>
-                <Field label="Blanket PO">
-                  <input className={inputClass} name="blanket_po" defaultValue={planLineDraft?.blanket_po ?? ""} />
-                </Field>
-                <Field label="Notes" className="sm:col-span-2 xl:col-span-3">
-                  <textarea className={`${inputClass} min-h-20`} name="notes" defaultValue={planLineDraft?.notes ?? ""} />
-                </Field>
-                <div className="sm:col-span-2 xl:col-span-3">
-                  <button className={buttonPrimary} disabled={saving || !canEditCycle}>
-                    {planLineDraft ? "Save plan line" : "Add plan line"}
-                  </button>
+                    return (
+                      <Field
+                        key={`nest-allocation-${String(nestId)}-${index}`}
+                        label={getNestLabel(nest)}
+                      >
+                        <div className="relative">
+                          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                            {currency}
+                          </span>
+                          <input
+                            className={`${inputClass} pl-14`}
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            name={`allocation_${nestId}`}
+                            defaultValue={allocation?.allocation_amount ?? 0}
+                          />
+                        </div>
+                      </Field>
+                    );
+                  })}
                 </div>
+
+                <button
+                  className={`${buttonPrimary} mt-4`}
+                  disabled={saving}
+                >
+                  Save allocations
+                </button>
               </form>
             )}
           </section>
+        )}
 
+        {canManage && selectedCycle && (
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <SectionHeading
-              eyebrow="Quarter worksheet"
-              title="Plan lines"
-              description="These country and nest planning rows are separate from recorded expense activities. Planned totals help organize the allocation; activities appear in the expense ledger."
+              eyebrow="Quarter workflow"
+              title="Quarter status"
+              description="Entries are reviewed individually while the quarter stays open. Close the quarter when all pending entries are resolved."
             />
-            {data.planLines.length ? (
+
+            <div className="flex flex-wrap items-center gap-3">
+              <StatusPill status={selectedCycle.status} />
+              {(
+                [
+                  ["draft", "open", "Open for planning"],
+                  ["open", "closed", "Close quarter"],
+                  ["in_review", "open", "Reopen for work"],
+                  ["approved", "open", "Reopen for work"],
+                  ["approved", "closed", "Close quarter"],
+                ] as const
+              )
+                .filter(([current]) => current === selectedCycle.status)
+                .map(([, nextStatus, label]) => (
+                  <button
+                    type="button"
+                    key={`${selectedCycle.status}-${nextStatus}-${label}`}
+                    className={buttonSecondary}
+                    disabled={saving}
+                    onClick={() =>
+                      void submitAction("set_cycle_status", { status: nextStatus })
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+            </div>
+          </section>
+        )}
+
+        <section className="grid gap-6 xl:grid-cols-2">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <SectionHeading
+              eyebrow="Quarter activity"
+              title="Spending by category"
+              description="Recorded entries grouped by summary category."
+            />
+
+            {entriesByGroup.length ? (
+              <div className="space-y-4">
+                {entriesByGroup.map(([group, amount]) => {
+                  const max = Math.max(
+                    ...entriesByGroup.map((entry) => entry[1]),
+                    1,
+                  );
+                  const percent = Math.max(3, (amount / max) * 100);
+
+                  return (
+                    <div key={group}>
+                      <div className="mb-1.5 flex justify-between gap-3 text-sm">
+                        <span className="font-semibold text-slate-700">
+                          {group}
+                        </span>
+                        <span className="font-bold text-slate-900">
+                          {money(amount, currency)}
+                        </span>
+                      </div>
+                      <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-violet-600"
+                          style={{ width: `${percent}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <EmptyState>
+                No expense entries have been recorded for this quarter.
+              </EmptyState>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <SectionHeading
+              eyebrow="Nest allocations"
+              title="Allocation and balance"
+              description="Compare each nest’s allocation with its recorded activity."
+            />
+
+            {currentAllocations.length ? (
               <TableWrap>
                 <table className="min-w-full border-collapse">
-                  <thead><tr><Th>Scope</Th><Th>Department / GL</Th><Th>Category / type</Th><Th>Description</Th><Th>Qty / unit</Th><Th>Planned total</Th><Th>Vendor / quotes</Th><Th>Notes</Th><Th>Actions</Th></tr></thead>
+                  <thead>
+                    <tr>
+                      <Th>Nest</Th>
+                      <Th>Allocated</Th>
+                      <Th>Recorded</Th>
+                      <Th>Fuel</Th>
+                      <Th>Available</Th>
+                    </tr>
+                  </thead>
                   <tbody>
-                    {data.planLines.map((line, index) => {
-                      const lineQuotes = data.planLineQuotes.filter((quote) => String(quote.plan_line_id) === String(line.plan_line_id));
-                      const vendorName = line.vendor_name_snapshot || data.vendors.find((vendor) => String(vendor.vendor_id) === String(line.vendor_id))?.vendor_name;
+                    {currentAllocations.map((allocation, index) => {
+                      const spent = activityCostForNest(allocation.nest_id);
+                      const fuel = fuelCostForNest(allocation.nest_id);
+                      const allocated = numberValue(
+                        allocation.allocation_amount,
+                      );
+                      const available = allocated - spent - fuel;
+
                       return (
-                        <tr key={`plan-line-${String(line.plan_line_id ?? "unknown")}-${index}`}>
-                          <Td>{line.nest_id ? nestName(line.nest_id) : text(line.scope_label, "Country-wide")}</Td>
-                          <Td><p className="font-semibold text-slate-900">{text(line.department)}</p><p className="mt-1 text-xs text-slate-500">{text(line.gl_code)}</p></Td>
-                          <Td><p>{text(line.category)}</p><p className="mt-1 text-xs text-slate-500">{text(line.line_type || line.expense_type)}</p></Td>
-                          <Td><p className="font-semibold text-slate-900">{text(line.description)}</p>{line.item_code && <p className="mt-1 text-xs text-slate-500">{line.item_code}</p>}</Td>
-                          <Td>{line.planned_quantity == null ? "—" : numberValue(line.planned_quantity)} {text(line.unit_measure, "")}</Td>
-                          <Td className="font-bold">{line.planned_amount == null ? "Not entered" : money(line.planned_amount, currency)}</Td>
-                          <Td><p>{text(vendorName, "Not selected")}</p>{lineQuotes.map((quote, quoteIndex) => <p key={`plan-quote-${String(quote.plan_line_quote_id ?? quoteIndex)}`} className="mt-1 text-xs text-slate-500">{quote.vendor_name_snapshot}: {quote.total_cost == null ? "cost pending" : money(quote.total_cost, currency)}</p>)}</Td>
-                          <Td>{text(line.notes)}</Td>
-                          <Td>
-                            {canEditCycle && canEditPlanLine(line) ? (
-                              <div className="flex flex-col gap-2">
-                                <button type="button" className={buttonSecondary} onClick={() => setPlanLineDraft(line)}>Edit</button>
-                                <button type="button" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800 hover:bg-rose-100" disabled={saving} onClick={() => void submitAction("delete_plan_line", { planLineId: line.plan_line_id })}>Remove</button>
-                              </div>
-                            ) : <span className="text-xs text-slate-400">View only</span>}
+                        <tr
+                          key={`allocation-${String(
+                            allocation.allocation_id ?? allocation.nest_id ?? "unknown",
+                          )}-${index}`}
+                        >
+                          <Td className="font-semibold text-slate-900">
+                            {nestName(allocation.nest_id)}
+                          </Td>
+                          <Td>{money(allocated, currency)}</Td>
+                          <Td>{money(spent, currency)}</Td>
+                          <Td>{money(fuel, currency)}</Td>
+                          <Td
+                            className={
+                              available < 0
+                                ? "font-bold text-rose-700"
+                                : "font-bold text-emerald-700"
+                            }
+                          >
+                            {money(available, currency)}
                           </Td>
                         </tr>
                       );
@@ -1667,203 +1381,1723 @@ export function QuarterlyExpenseWorkspace({
                 </table>
               </TableWrap>
             ) : (
-              <EmptyState>No plan lines are loaded for this quarter yet. Import the P1 plan or add rows above.</EmptyState>
+              <EmptyState>
+                No nest allocations are set for this quarter.
+              </EmptyState>
             )}
-          </section>
-        </div>
-      )}
+          </div>
+        </section>
 
-      {activeTab === "entries" && (
-        <div className="space-y-6">
+        {isFinance && (
+          <>
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <SectionHeading
+                eyebrow="Country comparison"
+                title="Compare country allocations"
+                description="USD comparison uses each quarter’s stored FX rate. Check the source currency before making budget decisions."
+              />
+
+              {data.countryComparison.length ? (
+                <TableWrap>
+                  <table className="min-w-full border-collapse">
+                    <thead>
+                      <tr>
+                        <Th>Country</Th>
+                        <Th>Currency</Th>
+                        <Th>Allocated</Th>
+                        <Th>Recorded</Th>
+                        <Th>Remaining</Th>
+                        <Th>Allocated USD</Th>
+                        <Th>Recorded USD</Th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.countryComparison.map((row, index) => (
+                        <tr key={`country-comparison-${String(row.country ?? "unknown")}-${index}`}>
+                          <Td className="font-semibold text-slate-900">
+                            {text(row.country_name || row.country)}
+                          </Td>
+                          <Td>{text(row.currencyCode || row.currency_code)}</Td>
+                          <Td>{money(row.allocated, row.currencyCode)}</Td>
+                          <Td>{money(row.committed, row.currencyCode)}</Td>
+                          <Td>{money(row.remaining, row.currencyCode)}</Td>
+                          <Td>{money(row.allocatedUsd, "USD")}</Td>
+                          <Td>{money(row.committedUsd, "USD")}</Td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </TableWrap>
+              ) : (
+                <EmptyState>
+                  No country comparison data is available.
+                </EmptyState>
+              )}
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <SectionHeading
+                eyebrow="History"
+                title="Previous quarter activity"
+                description="Review prior expense entries alongside the current plan."
+              />
+
+              {data.historyEntries.length ? (
+                <TableWrap>
+                  <table className="min-w-full border-collapse">
+                    <thead>
+                      <tr>
+                        <Th>Quarter</Th>
+                        <Th>Nest</Th>
+                        <Th>Activity</Th>
+                        <Th>Vendor</Th>
+                        <Th>Category / GL</Th>
+                        <Th>Amount</Th>
+                        <Th>Status</Th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.historyEntries.map((entry, index) => (
+                        <tr key={`expense-entry-${String(entry.expense_id ?? "unknown")}-${index}`}>
+                          <Td>{text(entry.quarter_label || entry.quarter)}</Td>
+                          <Td>{nestName(entry.nest_id)}</Td>
+                          <Td className="font-semibold text-slate-900">
+                            {text(entry.description)}
+                          </Td>
+                          <Td>{text(entry.vendor_name_snapshot ?? entry.vendor_name)}</Td>
+                          <Td>
+                            {text(
+                              entry.summary_group ||
+                                entry.gl_code ||
+                                entry.category,
+                            )}
+                          </Td>
+                          <Td>
+                            {money(
+                              entry.actual_amount ??
+                                entry.amount ??
+                                entry.total_cost,
+                              entry.currency_code || currency,
+                            )}
+                          </Td>
+                          <Td>
+                            <StatusPill status={entry.status} />
+                          </Td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </TableWrap>
+              ) : (
+                <EmptyState>
+                  No prior quarter entries are available for this country.
+                </EmptyState>
+              )}
+            </section>
+          </>
+        )}
+      </div>
+    )}
+
+    {activeTab === "plan" && (
+      <div className="space-y-6">
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <SectionHeading
+            eyebrow="Quarter plan"
+            title={planLineDraft ? "Edit plan line" : "Add a plan line"}
+            description="Capture the spreadsheet row before it becomes an expense activity. Vendor and cost may stay blank until the nest confirms them."
+            action={planLineDraft ? (
+              <button
+                type="button"
+                className={buttonSecondary}
+                onClick={() => setPlanLineDraft(null)}
+              >
+                Cancel edit
+              </button>
+            ) : undefined}
+          />
+
+          {!selectedCycle ? (
+            <EmptyState>Select a quarter to work with its plan.</EmptyState>
+          ) : !canEditCycle ? (
+            <EmptyState>This quarter is view-only. Select an open quarter to edit plan lines.</EmptyState>
+          ) : (
+            <form
+              key={String(planLineDraft?.plan_line_id ?? "new-plan-line")}
+              className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+              onSubmit={handleForm(
+                "save_plan_line",
+                (form) => {
+                  const values = new FormData(form);
+                  const nestId = String(values.get("nest_id") || "");
+                  return {
+                    plan_line_id: planLineDraft?.plan_line_id ?? null,
+                    scope_type: values.get("scope_type"),
+                    scope_label: values.get("scope_label"),
+                    nest_id: nestId || null,
+                    department: values.get("department"),
+                    team: values.get("team"),
+                    gl_code: values.get("gl_code"),
+                    category: values.get("category"),
+                    expense_type: values.get("expense_type"),
+                    line_type: values.get("line_type"),
+                    item_code: values.get("item_code"),
+                    description: values.get("description"),
+                    unit_measure: values.get("unit_measure"),
+                    planned_quantity: values.get("planned_quantity"),
+                    planned_unit_cost: values.get("planned_unit_cost"),
+                    planned_amount: values.get("planned_amount"),
+                    vendor_id: values.get("vendor_id") || null,
+                    vendor_name_snapshot: values.get("vendor_name_snapshot"),
+                    blanket_po: values.get("blanket_po"),
+                    notes: values.get("notes"),
+                  };
+                },
+                "Plan line saved.",
+              )}
+            >
+              <Field label="Scope">
+                <select
+                  className={selectClass}
+                  name="scope_type"
+                  defaultValue={planLineDraft?.scope_type ?? "nest"}
+                >
+                  <option value="nest">Nest</option>
+                  {canManage && <option value="country">Country-wide</option>}
+                  {canManage && <option value="hq">HQ</option>}
+                  {canManage && <option value="central">Central</option>}
+                  {canManage && <option value="donor_program">Donor program</option>}
+                  {canManage && <option value="other">Other</option>}
+                </select>
+              </Field>
+
+              <Field label="Nest">
+                <select
+                  className={selectClass}
+                  name="nest_id"
+                  defaultValue={String(planLineDraft?.nest_id ?? "")}
+                >
+                  <option value="">Select nest for nest-scoped line</option>
+                  {data.nests.map((nest, index) => {
+                    const nestId = getNestId(nest);
+                    if (nestId === null) return null;
+                    if (!canManage && !canRecordNestIds.includes(String(nestId))) return null;
+                    return (
+                      <option key={`plan-nest-${String(nestId)}-${index}`} value={String(nestId)}>
+                        {getNestLabel(nest)}
+                      </option>
+                    );
+                  })}
+                </select>
+              </Field>
+
+              <Field label="Scope label">
+                <input className={inputClass} name="scope_label" defaultValue={planLineDraft?.scope_label ?? ""} placeholder="Optional country or program label" />
+              </Field>
+              <Field label="Department">
+                <input className={inputClass} name="department" defaultValue={planLineDraft?.department ?? ""} />
+              </Field>
+              <Field label="Team">
+                <input className={inputClass} name="team" defaultValue={planLineDraft?.team ?? ""} />
+              </Field>
+              <Field label="GL code">
+                <select className={selectClass} name="gl_code" defaultValue={planLineDraft?.gl_code ?? ""}>
+                  <option value="">Select GL code</option>
+                  {data.glCodes.map((code, index) => (
+                    <option key={`plan-gl-${String(code.gl_code ?? "unknown")}-${index}`} value={String(code.gl_code)}>
+                      {code.gl_code} · {code.description}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Category">
+                <input className={inputClass} name="category" defaultValue={planLineDraft?.category ?? ""} />
+              </Field>
+              <Field label="Expense type">
+                <select className={selectClass} name="expense_type" defaultValue={planLineDraft?.expense_type ?? ""}>
+                  <option value="">Select type</option>
+                  <option value="recurring">Recurring</option>
+                  <option value="one_off">One-off</option>
+                  <option value="service_utility">Service / utility</option>
+                  <option value="fuel">Fuel</option>
+                  <option value="travel">Travel</option>
+                  <option value="other">Other</option>
+                </select>
+              </Field>
+              <Field label="Plan line type">
+                <input className={inputClass} name="line_type" defaultValue={planLineDraft?.line_type ?? ""} placeholder="Purchase, NTE Budget, Service…" />
+              </Field>
+              <Field label="Item code">
+                <input className={inputClass} name="item_code" defaultValue={planLineDraft?.item_code ?? ""} />
+              </Field>
+              <Field label="Description">
+                <input className={inputClass} name="description" defaultValue={planLineDraft?.description ?? ""} required />
+              </Field>
+              <Field label="Unit">
+                <input className={inputClass} name="unit_measure" defaultValue={planLineDraft?.unit_measure ?? ""} placeholder="Each, litre, month…" />
+              </Field>
+              <Field label="Planned quantity">
+                <input className={inputClass} name="planned_quantity" type="number" min="0" step="0.01" defaultValue={planLineDraft?.planned_quantity ?? ""} />
+              </Field>
+              <Field label="Planned unit cost">
+                <input className={inputClass} name="planned_unit_cost" type="number" min="0" step="0.01" defaultValue={planLineDraft?.planned_unit_cost ?? ""} />
+              </Field>
+              <Field label="Planned total">
+                <input className={inputClass} name="planned_amount" type="number" min="0" step="0.01" defaultValue={planLineDraft?.planned_amount ?? ""} />
+              </Field>
+              <Field label="Vendor">
+                <select className={selectClass} name="vendor_id" defaultValue={String(planLineDraft?.vendor_id ?? "")}>
+                  <option value="">Vendor not selected yet</option>
+                  {data.vendors.map((vendor, index) => (
+                    <option key={`plan-vendor-${String(vendor.vendor_id ?? "unknown")}-${index}`} value={String(vendor.vendor_id)}>
+                      {vendor.vendor_name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Vendor name snapshot">
+                <input className={inputClass} name="vendor_name_snapshot" defaultValue={planLineDraft?.vendor_name_snapshot ?? ""} placeholder="Use when vendor is not in catalog yet" />
+              </Field>
+              <Field label="Blanket PO">
+                <input className={inputClass} name="blanket_po" defaultValue={planLineDraft?.blanket_po ?? ""} />
+              </Field>
+              <Field label="Notes" className="sm:col-span-2 xl:col-span-3">
+                <textarea className={`${inputClass} min-h-20`} name="notes" defaultValue={planLineDraft?.notes ?? ""} />
+              </Field>
+              <div className="sm:col-span-2 xl:col-span-3">
+                <button className={buttonPrimary} disabled={saving || !canEditCycle}>
+                  {planLineDraft ? "Save plan line" : "Add plan line"}
+                </button>
+              </div>
+            </form>
+          )}
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <SectionHeading
+            eyebrow="Quarter worksheet"
+            title="Plan lines"
+            description="These country and nest planning rows are separate from recorded expense activities. Planned totals help organize the allocation; activities appear in the expense ledger."
+          />
+          {data.planLines.length ? (
+            <TableWrap>
+              <table className="min-w-full border-collapse">
+                <thead><tr><Th>Scope</Th><Th>Department / GL</Th><Th>Category / type</Th><Th>Description</Th><Th>Qty / unit</Th><Th>Planned total</Th><Th>Vendor / quotes</Th><Th>Notes</Th><Th>Actions</Th></tr></thead>
+                <tbody>
+                  {data.planLines.map((line, index) => {
+                    const lineQuotes = data.planLineQuotes.filter((quote) => String(quote.plan_line_id) === String(line.plan_line_id));
+                    const vendorName = line.vendor_name_snapshot || data.vendors.find((vendor) => String(vendor.vendor_id) === String(line.vendor_id))?.vendor_name;
+                    return (
+                      <tr key={`plan-line-${String(line.plan_line_id ?? "unknown")}-${index}`}>
+                        <Td>{line.nest_id ? nestName(line.nest_id) : text(line.scope_label, "Country-wide")}</Td>
+                        <Td><p className="font-semibold text-slate-900">{text(line.department)}</p><p className="mt-1 text-xs text-slate-500">{text(line.gl_code)}</p></Td>
+                        <Td><p>{text(line.category)}</p><p className="mt-1 text-xs text-slate-500">{text(line.line_type || line.expense_type)}</p></Td>
+                        <Td><p className="font-semibold text-slate-900">{text(line.description)}</p>{line.item_code && <p className="mt-1 text-xs text-slate-500">{line.item_code}</p>}</Td>
+                        <Td>{line.planned_quantity == null ? "—" : numberValue(line.planned_quantity)} {text(line.unit_measure, "")}</Td>
+                        <Td className="font-bold">{line.planned_amount == null ? "Not entered" : money(line.planned_amount, currency)}</Td>
+                        <Td><p>{text(vendorName, "Not selected")}</p>{lineQuotes.map((quote, quoteIndex) => <p key={`plan-quote-${String(quote.plan_line_quote_id ?? quoteIndex)}`} className="mt-1 text-xs text-slate-500">{quote.vendor_name_snapshot}: {quote.total_cost == null ? "cost pending" : money(quote.total_cost, currency)}</p>)}</Td>
+                        <Td>{text(line.notes)}</Td>
+                        <Td>
+                          {canEditCycle && canEditPlanLine(line) ? (
+                            <div className="flex flex-col gap-2">
+                              <button type="button" className={buttonSecondary} onClick={() => setPlanLineDraft(line)}>Edit</button>
+                              <button type="button" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800 hover:bg-rose-100" disabled={saving} onClick={() => void submitAction("delete_plan_line", { planLineId: line.plan_line_id })}>Remove</button>
+                            </div>
+                          ) : <span className="text-xs text-slate-400">View only</span>}
+                        </Td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </TableWrap>
+          ) : (
+            <EmptyState>No plan lines are loaded for this quarter yet. Import the P1 plan or add rows above.</EmptyState>
+          )}
+        </section>
+      </div>
+    )}
+
+    {activeTab === "entries" && (
+      <div className="space-y-6">
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <SectionHeading
+            eyebrow="Record an activity"
+            title="Add an expense or planned activity"
+            description="Choose the nest, item, vendor, and amount. The available balance is shown before you save."
+          />
+
+          {!selectedCycle ? (
+            <EmptyState>
+              Select or create a quarter before adding an activity.
+            </EmptyState>
+          ) : (
+            <form
+              className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+              onSubmit={handleForm(
+                "add_expense",
+                (form) => {
+                  const values = new FormData(form);
+                  const itemId = String(values.get("item_id") || "");
+                  const item = data.items.find(
+                    (row) => String(row.item_id) === itemId,
+                  );
+                  const vendorId = String(values.get("vendor_id") || "");
+                  const vendor = data.vendors.find(
+                    (row) => String(row.vendor_id) === vendorId,
+                  );
+                  const quantity = Number(values.get("quantity") || 1);
+                  const unitCost = Number(values.get("unit_cost") || 0);
+                  const amount = Number(
+                    values.get("amount") || quantity * unitCost,
+                  );
+
+                  const quoteDrafts = [1, 2, 3]
+                    .map((index) => {
+                      const quoteVendorId = String(
+                        values.get(`quote_vendor_${index}`) || "",
+                      );
+                      const quoteUnitCost = Number(
+                        values.get(`quote_cost_${index}`) || 0,
+                      );
+
+                      return {
+                        vendorId: quoteVendorId,
+                        unitCost: quoteUnitCost,
+                        totalCost: quoteUnitCost * quantity,
+                        note: String(
+                          values.get(`quote_note_${index}`) || "",
+                        ),
+                      };
+                    })
+                    .filter(
+                      (quote) => quote.vendorId && quote.unitCost > 0,
+                    );
+
+                  return {
+                    nest_id: values.get("nest_id"),
+                    item_id: itemId || null,
+                    item_code: item?.item_code || values.get("item_code"),
+                    description:
+                      values.get("description") || item?.item_name || "",
+                    vendor_id: vendorId || null,
+                    vendor_name:
+                      vendor?.vendor_name || values.get("vendor_name") || "",
+                    department: values.get("department"),
+                    team: values.get("team"),
+                    gl_code: values.get("gl_code") || item?.gl_code || "",
+                    category: values.get("category") || item?.category || "",
+                    expense_type:
+                      values.get("expense_type") || item?.expense_type || "",
+                    summary_group:
+                      values.get("summary_group") ||
+                      item?.summary_group ||
+                      "",
+                    unit: values.get("unit") || item?.unit_measure || "",
+                    quantity,
+                    unit_cost: unitCost,
+                    actual_amount: amount,
+                    amount,
+                    blanket_po: values.get("blanket_po"),
+                    comment: values.get("comment"),
+                    quotes: quoteDrafts,
+                  };
+                },
+                "Expense submitted for review.",
+              )}
+            >
+              <Field label="Nest">
+                <select
+                  className={selectClass}
+                  name="nest_id"
+                  required
+                  defaultValue=""
+                  onChange={(event) =>
+                    setExpenseDraft((current) => ({
+                      ...current,
+                      nestId: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="" disabled>
+                    Select a nest
+                  </option>
+                  {data.nests.map((nest, index) => {
+                    const nestId = getNestId(nest);
+                    if (nestId === null) return null;
+                    if (
+                      !canManage &&
+                      !canRecordNestIds.includes(String(nestId))
+                    ) {
+                      return null;
+                    }
+
+                    return (
+                      <option
+                        key={`expense-nest-${String(nestId)}-${index}`}
+                        value={String(nestId)}
+                      >
+                        {getNestLabel(nest)}
+                      </option>
+                    );
+                  })}
+                </select>
+              </Field>
+
+              <Field
+                label="Catalog item"
+                hint="Choose the country catalog item for this expense."
+              >
+                <select
+                  className={selectClass}
+                  name="item_id"
+                  defaultValue=""
+                  required
+                >
+                  <option value="">Choose an item</option>
+                  {data.items.map((item, index) => (
+                    <option
+                      key={`item-${String(item.item_id ?? "unknown")}-${index}`}
+                      value={item.item_id}
+                    >
+                      {item.item_code ? `${item.item_code} · ` : ""}
+                      {item.item_name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Vendor">
+                <select
+                  className={selectClass}
+                  name="vendor_id"
+                  defaultValue=""
+                  required
+                >
+                  <option value="">Select a vendor from this country</option>
+                  {data.vendors.map((vendor, index) => (
+                    <option
+                      key={`vendor-${String(vendor.vendor_id ?? "unknown")}-${index}`}
+                      value={vendor.vendor_id}
+                    >
+                      {vendor.vendor_name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Vendor not listed?">
+                <div className="flex min-h-11 items-center rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm leading-5 text-slate-600">
+                  Add the vendor in Country catalogs, then select it here.
+                </div>
+              </Field>
+
+              <Field label="Activity / description">
+                <input
+                  className={inputClass}
+                  name="description"
+                  placeholder="What is being done or purchased?"
+                  required
+                />
+              </Field>
+
+              <Field label="Department">
+                <input
+                  className={inputClass}
+                  name="department"
+                  placeholder="Facilities, Operations…"
+                />
+              </Field>
+
+              <Field label="Team">
+                <input
+                  className={inputClass}
+                  name="team"
+                  placeholder="Team or cost centre"
+                />
+              </Field>
+
+              <Field label="GL code">
+                <select
+                  className={selectClass}
+                  name="gl_code"
+                  defaultValue=""
+                >
+                  <option value="">Select GL code</option>
+                  {data.glCodes.map((code, index) => (
+                    <option
+                      key={`gl-code-${String(code.gl_code ?? "unknown")}-${index}`}
+                      value={code.gl_code}
+                    >
+                      {code.gl_code} · {code.description}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Category">
+                <input
+                  className={inputClass}
+                  name="category"
+                  placeholder="Fuel, travel, facilities…"
+                />
+              </Field>
+
+              <Field label="Summary group">
+                <input
+                  className={inputClass}
+                  name="summary_group"
+                  placeholder="COGS, OPEX, Capex…"
+                />
+              </Field>
+
+              <Field label="Expense type">
+                <select
+                  className={selectClass}
+                  name="expense_type"
+                  defaultValue=""
+                >
+                  <option value="">Select type</option>
+                  <option value="recurring">Recurring</option>
+                  <option value="one_off">One-off</option>
+                  <option value="discretionary">Discretionary</option>
+                  <option value="non_discretionary">
+                    Non-discretionary
+                  </option>
+                </select>
+              </Field>
+
+              <Field label="Unit">
+                <input
+                  className={inputClass}
+                  name="unit"
+                  placeholder="Each, litre, day…"
+                />
+              </Field>
+
+              <Field label="Quantity">
+                <input
+                  className={inputClass}
+                  name="quantity"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  defaultValue="1"
+                  onChange={(event) =>
+                    setExpenseDraft((current) => ({
+                      ...current,
+                      quantity: event.target.value,
+                    }))
+                  }
+                />
+              </Field>
+
+              <Field label="Unit cost">
+                <input
+                  className={inputClass}
+                  name="unit_cost"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  onChange={(event) =>
+                    setExpenseDraft((current) => ({
+                      ...current,
+                      unitCost: event.target.value,
+                    }))
+                  }
+                />
+              </Field>
+
+              <Field
+                label="Total amount"
+                hint={`Currency: ${currency || "quarter currency"}`}
+              >
+                <input
+                  className={inputClass}
+                  name="amount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="Enter total, or leave blank to use quantity × unit cost"
+                  onChange={(event) =>
+                    setExpenseDraft((current) => ({
+                      ...current,
+                      amount: event.target.value,
+                    }))
+                  }
+                />
+              </Field>
+
+              <Field label="Blanket PO">
+                <input
+                  className={inputClass}
+                  name="blanket_po"
+                  placeholder="Optional PO reference"
+                />
+              </Field>
+
+              <Field
+                label="Comment"
+                className="sm:col-span-2 xl:col-span-3"
+              >
+                <textarea
+                  className={`${inputClass} min-h-24 resize-y`}
+                  name="comment"
+                  placeholder="Add context for Finance and reviewers"
+                />
+              </Field>
+
+              <div className="sm:col-span-2 xl:col-span-3">
+                <details className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <summary className="cursor-pointer text-sm font-bold text-slate-800">
+                    Add alternative vendor quotes
+                  </summary>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Enter up to three alternatives for comparison.
+                  </p>
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    {[1, 2, 3].map((index) => (
+                      <div
+                        key={index}
+                        className="space-y-2 rounded-xl border border-slate-200 bg-white p-3"
+                      >
+                        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                          Quote {index}
+                        </p>
+                        <select
+                          className={selectClass}
+                          name={`quote_vendor_${index}`}
+                          defaultValue=""
+                        >
+                          <option value="">Choose vendor</option>
+                          {data.vendors.map((vendor, vendorIndex) => (
+                            <option
+                              key={`quote-vendor-${String(vendor.vendor_id ?? "unknown")}-${vendorIndex}`}
+                              value={String(vendor.vendor_id ?? "")}
+                            >
+                              {vendor.vendor_name}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          className={inputClass}
+                          name={`quote_cost_${index}`}
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="Unit cost"
+                        />
+                        <input
+                          className={inputClass}
+                          name={`quote_note_${index}`}
+                          placeholder="Note"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-violet-50 p-4 sm:col-span-2 xl:col-span-3">
+                <div>
+                  <p className="text-sm font-bold text-violet-950">
+                    {expenseDraft.nestId
+                      ? `${nestName(expenseDraft.nestId)} balance preview`
+                      : "Balance preview"}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-violet-800">
+                    {expenseDraft.nestId
+                      ? `Before this request: ${money(previewRemaining, currency)} available. This request: ${money(previewAmount, currency)}. After submission: ${money(previewAfterRequest, currency)}. Pending requests count against the balance; approval replaces the request amount with the actual amount.`
+                      : "Select a nest and enter an amount to see its available balance before and after this request."}
+                  </p>
+                </div>
+                <button className={buttonPrimary} disabled={saving}>
+                  {saving ? "Submitting…" : "Submit for review"}
+                </button>
+              </div>
+            </form>
+          )}
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <SectionHeading
+            eyebrow="Quarter ledger"
+            title="Recorded activities"
+            description="Finance and country managers can review entries and record actual amounts."
+          />
+
+          {cycleEntries.length ? (
+            <TableWrap>
+              <table className="min-w-full border-collapse">
+                <thead>
+                  <tr>
+                    <Th>Nest</Th>
+                    <Th>Activity</Th>
+                    <Th>Vendor</Th>
+                    <Th>GL / Category</Th>
+                    <Th>Amount</Th>
+                    <Th>Status</Th>
+                    <Th>Review</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cycleEntries.map((entry, index) => (
+                    <tr key={`expense-entry-${String(entry.expense_id ?? "unknown")}-${index}`}>
+                      <Td className="font-semibold text-slate-900">
+                        {nestName(entry.nest_id)}
+                      </Td>
+                      <Td>
+                        <p className="font-semibold text-slate-900">
+                          {text(entry.description)}
+                        </p>
+                        {entry.comment && (
+                          <p className="mt-1 max-w-xs text-xs text-slate-500">
+                            {entry.comment}
+                          </p>
+                        )}
+                      </Td>
+                      <Td>{text(entry.vendor_name_snapshot ?? entry.vendor_name)}</Td>
+                      <Td>
+                        <p>{text(entry.gl_code)}</p>
+                        <p className="text-xs text-slate-500">
+                          {text(entry.summary_group || entry.category)}
+                        </p>
+                      </Td>
+                      <Td className="font-bold text-slate-900">
+                        {money(
+                          entry.actual_amount ??
+                            entry.amount ??
+                            entry.total_cost,
+                          currency,
+                        )}
+                      </Td>
+                      <Td>
+                        <StatusPill status={entry.status} />
+                      </Td>
+                      <Td>
+                        {canManage &&
+                        ["open", "in_review"].includes(String(selectedCycle?.status)) &&
+                        ["planned", "in_review"].includes(String(entry.status)) ? (
+                          <div className="flex min-w-52 flex-col gap-2">
+                            <input
+                              className={inputClass}
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              placeholder="Actual amount"
+                              defaultValue={entry.actual_amount ?? entry.amount ?? ""}
+                              id={`actual-${entry.expense_id}`}
+                            />
+                            <input
+                              className={inputClass}
+                              placeholder="Review note"
+                              defaultValue={entry.review_note ?? ""}
+                              id={`review-note-${entry.expense_id}`}
+                            />
+                            <p className="text-xs leading-5 text-slate-500">
+                              If the actual cost exceeds available allocation,
+                              explain the overrun in the review note.
+                            </p>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-800"
+                                disabled={saving}
+                                onClick={() =>
+                                  void submitAction("review_expense", {
+                                    expenseId: entry.expense_id,
+                                    status: "approved",
+                                    actualAmount:
+                                      (
+                                        document.getElementById(
+                                          `actual-${entry.expense_id}`,
+                                        ) as HTMLInputElement
+                                      )?.value || null,
+                                    reviewNote: (
+                                      document.getElementById(
+                                        `review-note-${entry.expense_id}`,
+                                      ) as HTMLInputElement
+                                    )?.value,
+                                  })
+                                }
+                              >
+                                Approve
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800 hover:bg-rose-100"
+                                disabled={saving}
+                                onClick={() =>
+                                  void submitAction("review_expense", {
+                                    expenseId: entry.expense_id,
+                                    status: "rejected",
+                                    reviewNote: (
+                                      document.getElementById(
+                                        `review-note-${entry.expense_id}`,
+                                      ) as HTMLInputElement
+                                    )?.value,
+                                  })
+                                }
+                              >
+                                Return
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-xs font-semibold text-slate-500">
+                            {entry.status === "approved" || entry.status === "actual"
+                              ? "Reviewed"
+                              : entry.status === "rejected"
+                                ? "Returned"
+                                : "No action"}
+                          </span>
+                        )}
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableWrap>
+          ) : (
+            <EmptyState>
+              No activities have been entered for this quarter yet.
+            </EmptyState>
+          )}
+        </section>
+      </div>
+    )}
+
+    {activeTab === "budgets" && (
+      <div className="space-y-6">
+        {canManage && (
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <SectionHeading
-              eyebrow="Record an activity"
-              title="Add an expense or planned activity"
-              description="Choose the nest, item, vendor, and amount. The available balance is shown before you save."
+              eyebrow="Detailed plan"
+              title="Add a budget line"
+              description="Capture the sheet’s planning details by scope, department, GL code, category, quantity, and blanket PO."
             />
 
-            {!selectedCycle ? (
-              <EmptyState>
-                Select or create a quarter before adding an activity.
-              </EmptyState>
-            ) : (
+            <form
+              className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+              onSubmit={handleForm(
+                "save_budget_line",
+                (form) => {
+                  const values = new FormData(form);
+
+                  return {
+                    scope_type: values.get("scope_type"),
+                    scope_label: values.get("scope_label"),
+                    nest_id: values.get("nest_id") || null,
+                    department: values.get("department"),
+                    team: values.get("team"),
+                    gl_code: values.get("gl_code"),
+                    category: values.get("category"),
+                    summary_group: values.get("summary_group"),
+                    budget_amount: Number(
+                      values.get("budget_amount") || 0,
+                    ),
+                    blanket_po: values.get("blanket_po"),
+                    quantity: Number(values.get("qty") || 0),
+                    unit_measure: values.get("unit"),
+                    unit_cost: Number(values.get("cost") || 0),
+                    notes: values.get("notes"),
+                  };
+                },
+                "Budget line saved.",
+              )}
+            >
+              <Field label="Scope">
+                <select
+                  className={selectClass}
+                  name="scope_type"
+                  defaultValue="nest"
+                >
+                  <option value="nest">Nest</option>
+                  <option value="country">Country</option>
+                </select>
+              </Field>
+
+              <Field label="Scope label">
+                <input
+                  className={inputClass}
+                  name="scope_label"
+                  placeholder="e.g. Nairobi Nest"
+                />
+              </Field>
+
+              <Field label="Nest">
+                <select
+                  className={selectClass}
+                  name="nest_id"
+                  defaultValue=""
+                >
+                  <option value="">No specific nest</option>
+                  {data.nests.map((nest, index) => {
+                    const nestId = getNestId(nest);
+                    if (nestId === null) return null;
+
+                    return (
+                      <option
+                        key={`budget-nest-${String(nestId)}-${index}`}
+                        value={String(nestId)}
+                      >
+                        {getNestLabel(nest)}
+                      </option>
+                    );
+                  })}
+                </select>
+              </Field>
+
+              <Field label="Department">
+                <input
+                  className={inputClass}
+                  name="department"
+                  placeholder="Facilities, Operations…"
+                />
+              </Field>
+
+              <Field label="Team">
+                <input
+                  className={inputClass}
+                  name="team"
+                  placeholder="Team or cost centre"
+                />
+              </Field>
+
+              <Field label="GL code">
+                <select
+                  className={selectClass}
+                  name="gl_code"
+                  required
+                  defaultValue=""
+                >
+                  <option value="">Select GL code</option>
+                  {data.glCodes.map((code, index) => (
+                    <option
+                      key={`gl-code-${String(code.gl_code ?? "unknown")}-${index}`}
+                      value={code.gl_code}
+                    >
+                      {code.gl_code} · {code.description}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Category">
+                <input
+                  className={inputClass}
+                  name="category"
+                  placeholder="Category"
+                  required
+                />
+              </Field>
+
+              <Field label="Summary group">
+                <input
+                  className={inputClass}
+                  name="summary_group"
+                  placeholder="COGS, OPEX, Capex…"
+                />
+              </Field>
+
+              <Field label="Budget amount">
+                <input
+                  className={inputClass}
+                  name="budget_amount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  required
+                />
+              </Field>
+
+              <Field label="Blanket PO">
+                <input
+                  className={inputClass}
+                  name="blanket_po"
+                  placeholder="Optional PO reference"
+                />
+              </Field>
+
+              <Field label="Quantity">
+                <input
+                  className={inputClass}
+                  name="qty"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                />
+              </Field>
+
+              <Field label="Unit">
+                <input
+                  className={inputClass}
+                  name="unit"
+                  placeholder="Each, litre, month…"
+                />
+              </Field>
+
+              <Field label="Unit cost">
+                <input
+                  className={inputClass}
+                  name="cost"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                />
+              </Field>
+
+              <Field label="Notes" className="sm:col-span-2 xl:col-span-3">
+                <textarea
+                  className={`${inputClass} min-h-20`}
+                  name="notes"
+                  placeholder="Planning notes"
+                />
+              </Field>
+
+              <div className="sm:col-span-2 xl:col-span-3">
+                <button
+                  className={buttonPrimary}
+                  disabled={saving || !selectedCycle}
+                >
+                  Save budget line
+                </button>
+              </div>
+            </form>
+          </section>
+        )}
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <SectionHeading
+            eyebrow="Budget tracking"
+            title="Budget versus recorded expenses"
+            description="Variance is budget amount minus matching expense entries, grouped by GL code or summary group."
+          />
+
+          {budgetVarianceRows.length ? (
+            <TableWrap>
+              <table className="min-w-full border-collapse">
+                <thead>
+                  <tr>
+                    <Th>Scope</Th>
+                    <Th>Department / Team</Th>
+                    <Th>GL / Category</Th>
+                    <Th>Budget</Th>
+                    <Th>Recorded</Th>
+                    <Th>Variance</Th>
+                    <Th>Blanket PO</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {budgetVarianceRows.map((line, index) => (
+                    <tr key={`budget-line-${String(line.budget_id ?? "unknown")}-${index}`}>
+                      <Td className="font-semibold text-slate-900">
+                        {text(
+                          line.scope_label ||
+                            (line.nest_id
+                              ? nestName(line.nest_id)
+                              : line.scope_type),
+                        )}
+                      </Td>
+                      <Td>
+                        {text(line.department)}
+                        <p className="text-xs text-slate-500">
+                          {text(line.team)}
+                        </p>
+                      </Td>
+                      <Td>
+                        {text(line.gl_code)}
+                        <p className="text-xs text-slate-500">
+                          {text(line.summary_group || line.category)}
+                        </p>
+                      </Td>
+                      <Td>{money(line.budget_amount, currency)}</Td>
+                      <Td>{money(line.spent, currency)}</Td>
+                      <Td
+                        className={
+                          line.variance < 0
+                            ? "font-bold text-rose-700"
+                            : "font-bold text-emerald-700"
+                        }
+                      >
+                        {money(line.variance, currency)}
+                      </Td>
+                      <Td>{text(line.blanket_po)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableWrap>
+          ) : (
+            <EmptyState>
+              No detailed budget lines have been entered for this quarter.
+            </EmptyState>
+          )}
+        </section>
+      </div>
+    )}
+
+    {activeTab === "fuel" && (
+      <div className="space-y-6">
+        {canManage && (
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <SectionHeading
+              eyebrow="Fuel register"
+              title="Add a vehicle or generator"
+              description="Maintain country fuel assets for vehicle, generator, and fuel card planning."
+            />
+
+            <form
+              className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+              onSubmit={handleForm(
+                "add_fuel_asset",
+                (form) => {
+                  const values = new FormData(form);
+
+                  return {
+                    identifier: values.get("identifier"),
+                    asset_type: values.get("asset_type"),
+                    nest_id: values.get("nest_id") || null,
+                    model: values.get("model"),
+                    purpose: values.get("purpose"),
+                    fuel_type: values.get("fuel_type"),
+                    vendor_name: values.get("vendor_name"),
+                    consumption_rate: Number(values.get("consumption_rate") || 0),
+                    consumption_basis: values.get("consumption_basis"),
+                    notes: values.get("notes"),
+                  };
+                },
+                "Fuel asset added.",
+              )}
+            >
+              <Field label="Vehicle plate / asset identifier">
+                <input
+                  className={inputClass}
+                  name="identifier"
+                  placeholder="Registration or generator ID"
+                  required
+                />
+              </Field>
+
+              <Field label="Asset type">
+                <select
+                  className={selectClass}
+                  name="asset_type"
+                  defaultValue="vehicle"
+                >
+                  <option value="vehicle">Vehicle</option>
+                  <option value="generator">Generator</option>
+                  <option value="fuel_card">Fuel card</option>
+                </select>
+              </Field>
+
+              <Field label="Nest">
+                <select
+                  className={selectClass}
+                  name="nest_id"
+                  defaultValue=""
+                >
+                  <option value="">Country-wide / unassigned</option>
+                  {data.nests.map((nest, index) => {
+                    const nestId = getNestId(nest);
+                    if (nestId === null) return null;
+
+                    return (
+                      <option
+                        key={`fuel-nest-${String(nestId)}-${index}`}
+                        value={String(nestId)}
+                      >
+                        {getNestLabel(nest)}
+                      </option>
+                    );
+                  })}
+                </select>
+              </Field>
+
+              <Field label="Make and model">
+                <input
+                  className={inputClass}
+                  name="model"
+                  placeholder="Toyota Hiace, 150 kVA generator…"
+                />
+              </Field>
+
+              <Field label="Purpose">
+                <input
+                  className={inputClass}
+                  name="purpose"
+                  placeholder="Operational purpose"
+                />
+              </Field>
+
+              <Field label="Fuel type">
+                <input className={inputClass} name="fuel_type" placeholder="Diesel, petrol, electric…" />
+              </Field>
+
+              <Field label="Default vendor">
+                <select className={selectClass} name="vendor_name" defaultValue="">
+                  <option value="">Select vendor</option>
+                  {data.vendors.map((vendor, index) => (
+                    <option key={`asset-vendor-${String(vendor.vendor_id)}-${index}`} value={String(vendor.vendor_name)}>{vendor.vendor_name}</option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Consumption rate">
+                <input className={inputClass} name="consumption_rate" type="number" min="0" step="0.01" defaultValue="0" />
+              </Field>
+
+              <Field label="Rate basis">
+                <select className={selectClass} name="consumption_basis" defaultValue="per_100km">
+                  <option value="per_100km">Litres per 100 km</option>
+                  <option value="per_hour">Litres per generator hour</option>
+                </select>
+              </Field>
+
+              <Field label="Notes">
+                <input className={inputClass} name="notes" placeholder="Fuel card, operational notes…" />
+              </Field>
+
+              <div className="sm:col-span-2 xl:col-span-3">
+                <button
+                  className={buttonPrimary}
+                  disabled={saving || !selectedCycle}
+                >
+                  Add fuel asset
+                </button>
+              </div>
+            </form>
+          </section>
+        )}
+
+        {selectedCycle && canEditCycle && (
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <SectionHeading
+              eyebrow="Quarter fuel plan"
+              title="Submit or update the quarter fuel request"
+              description="Choose a vehicle or generator, its nest, the country vendor, usage, consumption rate and price. The application calculates the quarter estimate and saves it for everyone with access to this quarter."
+            />
+
+            <form
+              className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+              onSubmit={handleForm(
+                "save_fuel_plan",
+                (form) => {
+                  const values = new FormData(form);
+
+                  return {
+                    asset_id: values.get("asset_id"),
+                    nest_id: values.get("nest_id"),
+                    vendor_id: values.get("vendor_id") || null,
+                    projected_monthly_activity: Number(values.get("monthly_activity") || 0),
+                    cost_per_litre: Number(
+                      values.get("cost_per_litre") || 0,
+                    ),
+                    consumption_rate: Number(values.get("consumption_rate") || 0),
+                    consumption_basis: values.get("consumption_basis"),
+                    notes: values.get("notes"),
+                  };
+                },
+                "Fuel plan saved.",
+              )}
+            >
+              <Field label="Vehicle / generator / fuel card">
+                <select
+                  className={selectClass}
+                  name="asset_id"
+                  required
+                  defaultValue=""
+                >
+                  <option value="" disabled>
+                    Select an asset
+                  </option>
+                  {data.fuelAssets.map((asset, index) => (
+                    <option
+                      key={`fuel-asset-${String(asset.asset_id ?? "unknown")}-${index}`}
+                      value={asset.asset_id}
+                    >
+                      {asset.identifier || "Fuel asset"}
+                      {asset.model ? ` · ${asset.model}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Nest">
+                <select className={selectClass} name="nest_id" required defaultValue="">
+                  <option value="">Select the nest for this request</option>
+                  {data.nests.map((nest, index) => {
+                    const nestId = getNestId(nest);
+                    if (nestId === null) return null;
+                    if (!canManage && !canRecordNestIds.includes(String(nestId))) return null;
+                    return <option key={`fuel-plan-nest-${String(nestId)}-${index}`} value={String(nestId)}>{getNestLabel(nest)}</option>;
+                  })}
+                </select>
+              </Field>
+
+              <Field label="Country fuel vendor">
+                <select
+                  className={selectClass}
+                  name="vendor_id"
+                  required
+                  defaultValue=""
+                >
+                  <option value="">Select vendor</option>
+                  {data.vendors.map((vendor, index) => (
+                    <option
+                      key={`vendor-${String(vendor.vendor_id ?? "unknown")}-${index}`}
+                      value={vendor.vendor_id}
+                    >
+                      {vendor.vendor_name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Fuel type / usage basis">
+                <select className={selectClass} name="consumption_basis" defaultValue="per_100km">
+                  <option value="per_100km">Vehicle · litres per 100 km</option>
+                  <option value="per_hour">Generator · litres per hour</option>
+                </select>
+              </Field>
+
+              <Field label="Consumption rate">
+                <input
+                  className={inputClass}
+                  name="consumption_rate"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  required
+                />
+              </Field>
+
+              <Field label="Monthly km or generator hours">
+                <input
+                  className={inputClass}
+                  name="monthly_activity"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  required
+                  placeholder="Enter monthly kilometres or hours"
+                />
+              </Field>
+
+              <Field label="Cost per litre">
+                <input
+                  className={inputClass}
+                  name="cost_per_litre"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  required
+                />
+              </Field>
+
+              <Field label="Request notes">
+                <input
+                  className={inputClass}
+                  name="notes"
+                  placeholder="Purpose, route, operational context…"
+                />
+              </Field>
+
+              <div className="sm:col-span-2 xl:col-span-3">
+                <button
+                  className={buttonPrimary}
+                  disabled={saving || !selectedCycle}
+                >
+                  Save fuel plan
+                </button>
+              </div>
+            </form>
+          </section>
+        )}
+
+        {data.fuelPlans.length > 0 && (
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <SectionHeading
+              eyebrow="Fuel actuals"
+              title="Record quarterly fuel actuals"
+              description="Use this after the quarter’s fuel activity is known to compare actual litres and cost with the plan."
+            />
+
+            <div className="space-y-3">
+              {data.fuelPlans.map((plan, index) => (
+                <form
+                  key={`fuel-plan-${String(
+                    plan.fuel_plan_id ?? plan.plan_id ?? "unknown",
+                  )}-${index}`}
+                  className="grid gap-3 rounded-xl border border-slate-200 p-4 sm:grid-cols-2 xl:grid-cols-5"
+                  onSubmit={handleForm(
+                    "record_fuel_actual",
+                    (form) => {
+                      const values = new FormData(form);
+
+                      return {
+                        fuel_plan_id:
+                          plan.fuel_plan_id || plan.plan_id,
+                        actual_monthly_activity: Number(
+                          values.get("actual_monthly_activity") || 0,
+                        ),
+                        actual_quarterly_litres: Number(
+                          values.get("actual_quarterly_litres") || 0,
+                        ),
+                        actual_quarterly_cost: Number(
+                          values.get("actual_quarterly_cost") || 0,
+                        ),
+                        actual_notes: values.get("actual_notes"),
+                      };
+                    },
+                    "Fuel actuals recorded.",
+                  )}
+                >
+                  <div className="xl:col-span-2">
+                    <p className="font-bold text-slate-900">
+                      {text(
+                        data.fuelAssets.find((asset) => String(asset.asset_id) === String(plan.asset_id))?.identifier,
+                        "Fuel asset",
+                      )}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {text(data.fuelAssets.find((asset) => String(asset.asset_id) === String(plan.asset_id))?.model, "Fuel")}
+                      {" · "}{text(plan.vendor_name_snapshot, "Vendor not selected")}
+                      {" · Plan: "}{money(plan.estimated_quarterly_cost, currency)}
+                      {" · "}{numberValue(plan.estimated_quarterly_litres)} litres
+                    </p>
+                  </div>
+
+                  <Field label="Actual activity">
+                    <input
+                      className={inputClass}
+                      name="actual_monthly_activity"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      defaultValue={plan.actual_monthly_activity ?? ""}
+                      disabled={!canManage || !canEditCycle}
+                    />
+                  </Field>
+
+                  <Field label="Actual quarter litres">
+                    <input
+                      className={inputClass}
+                      name="actual_quarterly_litres"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      defaultValue={plan.actual_quarterly_litres ?? ""}
+                      disabled={!canManage || !canEditCycle}
+                    />
+                  </Field>
+
+                  <Field label="Actual quarter cost">
+                    <input
+                      className={inputClass}
+                      name="actual_quarterly_cost"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      defaultValue={plan.actual_quarterly_cost ?? ""}
+                      disabled={!canManage || !canEditCycle}
+                    />
+                  </Field>
+
+                  <Field
+                    label="Actual notes"
+                    className="sm:col-span-2 xl:col-span-4"
+                  >
+                    <input
+                      className={inputClass}
+                      name="actual_notes"
+                      defaultValue={plan.actual_notes ?? ""}
+                      placeholder="Notes"
+                      disabled={!canManage || !canEditCycle}
+                    />
+                  </Field>
+
+                  <div className="flex items-end">
+                    <button className={buttonPrimary} disabled={saving || !canManage || !canEditCycle}>
+                      Save actuals
+                    </button>
+                  </div>
+                </form>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <SectionHeading
+            eyebrow="Country assets"
+            title="Fuel assets"
+            description="Vehicles, generators, and fuel cards configured for this country."
+          />
+
+          {data.fuelAssets.length ? (
+            <TableWrap>
+              <table className="min-w-full border-collapse">
+                <thead>
+                  <tr>
+                    <Th>Asset</Th>
+                    <Th>Type</Th>
+                    <Th>Nest</Th>
+                    <Th>Identifier</Th>
+                    <Th>Purpose</Th>
+                    <Th>Status</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.fuelAssets.map((asset, index) => (
+                    <tr key={`fuel-asset-${String(asset.asset_id ?? "unknown")}-${index}`}>
+                      <Td className="font-semibold text-slate-900">
+                        {text(asset.model || asset.identifier)}
+                      </Td>
+                      <Td>{text(asset.asset_type)}</Td>
+                      <Td>
+                        {asset.nest_id
+                          ? nestName(asset.nest_id)
+                          : "Country-wide"}
+                      </Td>
+                      <Td>{text(asset.identifier)}</Td>
+                      <Td>{text(asset.purpose)}</Td>
+                      <Td>
+                        <StatusPill status={asset.is_active ? "active" : "inactive"} />
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableWrap>
+          ) : (
+            <EmptyState>
+              No fuel assets have been added for this country.
+            </EmptyState>
+          )}
+        </section>
+      </div>
+    )}
+
+    {activeTab === "catalog" && (
+      <div className="grid gap-6 xl:grid-cols-3">
+        {canManage && (
+          <>
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <SectionHeading
+                eyebrow="Country catalog"
+                title="Add vendor"
+                description="Vendors are selectable by users working in this country."
+              />
+
               <form
-                className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+                className="space-y-3"
                 onSubmit={handleForm(
-                  "add_expense",
+                  "add_vendor",
                   (form) => {
                     const values = new FormData(form);
-                    const itemId = String(values.get("item_id") || "");
-                    const item = data.items.find(
-                      (row) => String(row.item_id) === itemId,
-                    );
-                    const vendorId = String(values.get("vendor_id") || "");
-                    const vendor = data.vendors.find(
-                      (row) => String(row.vendor_id) === vendorId,
-                    );
-                    const quantity = Number(values.get("quantity") || 1);
-                    const unitCost = Number(values.get("unit_cost") || 0);
-                    const amount = Number(
-                      values.get("amount") || quantity * unitCost,
-                    );
-
-                    const quoteDrafts = [1, 2, 3]
-                      .map((index) => {
-                        const quoteVendorId = String(
-                          values.get(`quote_vendor_${index}`) || "",
-                        );
-                        const quoteUnitCost = Number(
-                          values.get(`quote_cost_${index}`) || 0,
-                        );
-
-                        return {
-                          vendorId: quoteVendorId,
-                          unitCost: quoteUnitCost,
-                          totalCost: quoteUnitCost * quantity,
-                          note: String(
-                            values.get(`quote_note_${index}`) || "",
-                          ),
-                        };
-                      })
-                      .filter(
-                        (quote) => quote.vendorId && quote.unitCost > 0,
-                      );
 
                     return {
-                      nest_id: values.get("nest_id"),
-                      item_id: itemId || null,
-                      item_code: item?.item_code || values.get("item_code"),
-                      description:
-                        values.get("description") || item?.item_name || "",
-                      vendor_id: vendorId || null,
-                      vendor_name:
-                        vendor?.vendor_name || values.get("vendor_name") || "",
-                      department: values.get("department"),
-                      team: values.get("team"),
-                      gl_code: values.get("gl_code") || item?.gl_code || "",
-                      category: values.get("category") || item?.category || "",
-                      expense_type:
-                        values.get("expense_type") || item?.expense_type || "",
-                      summary_group:
-                        values.get("summary_group") ||
-                        item?.summary_group ||
-                        "",
-                      unit: values.get("unit") || item?.unit_measure || "",
-                      quantity,
-                      unit_cost: unitCost,
-                      actual_amount: amount,
-                      amount,
-                      blanket_po: values.get("blanket_po"),
-                      comment: values.get("comment"),
-                      quotes: quoteDrafts,
+                      vendor_name: values.get("vendor_name"),
+                      vendor_code: values.get("vendor_code"),
+                      contact_name: values.get("contact_name"),
+                      phone: values.get("phone"),
+                      email: values.get("email"),
+                      notes: values.get("notes"),
                     };
                   },
-                  "Expense submitted for review.",
+                  "Vendor added to the country list.",
                 )}
               >
-                <Field label="Nest">
-                  <select
-                    className={selectClass}
-                    name="nest_id"
-                    required
-                    defaultValue=""
-                  >
-                    <option value="" disabled>
-                      Select a nest
-                    </option>
-                    {data.nests.map((nest, index) => {
-                      const nestId = getNestId(nest);
-                      if (nestId === null) return null;
-                      if (
-                        !canManage &&
-                        !canRecordNestIds.includes(String(nestId))
-                      ) {
-                        return null;
-                      }
-
-                      return (
-                        <option
-                          key={`expense-nest-${String(nestId)}-${index}`}
-                          value={String(nestId)}
-                        >
-                          {getNestLabel(nest)}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </Field>
-
-                <Field
-                  label="Catalog item"
-                  hint="Choose the country catalog item for this expense."
-                >
-                  <select
-                    className={selectClass}
-                    name="item_id"
-                    defaultValue=""
-                    required
-                  >
-                    <option value="">Choose an item</option>
-                    {data.items.map((item, index) => (
-                      <option
-                        key={`item-${String(item.item_id ?? "unknown")}-${index}`}
-                        value={item.item_id}
-                      >
-                        {item.item_code ? `${item.item_code} · ` : ""}
-                        {item.item_name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-
-                <Field label="Vendor">
-                  <select
-                    className={selectClass}
-                    name="vendor_id"
-                    defaultValue=""
-                    required
-                  >
-                    <option value="">Select a vendor from this country</option>
-                    {data.vendors.map((vendor, index) => (
-                      <option
-                        key={`vendor-${String(vendor.vendor_id ?? "unknown")}-${index}`}
-                        value={vendor.vendor_id}
-                      >
-                        {vendor.vendor_name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-
-                <Field label="Vendor not listed?">
-                  <div className="flex min-h-11 items-center rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm leading-5 text-slate-600">
-                    Add the vendor in Country catalogs, then select it here.
-                  </div>
-                </Field>
-
-                <Field label="Activity / description">
+                <Field label="Vendor name">
                   <input
                     className={inputClass}
-                    name="description"
-                    placeholder="What is being done or purchased?"
+                    name="vendor_name"
                     required
                   />
+                </Field>
+
+                <Field label="Vendor code">
+                  <input className={inputClass} name="vendor_code" />
+                </Field>
+
+                <Field label="Contact name">
+                  <input className={inputClass} name="contact_name" />
+                </Field>
+
+                <Field label="Phone">
+                  <input className={inputClass} name="phone" />
+                </Field>
+
+                <Field label="Email">
+                  <input
+                    className={inputClass}
+                    name="email"
+                    type="email"
+                  />
+                </Field>
+
+                <Field label="Notes">
+                  <textarea
+                    className={`${inputClass} min-h-20`}
+                    name="notes"
+                  />
+                </Field>
+
+                <button className={buttonPrimary} disabled={saving}>
+                  Add vendor
+                </button>
+              </form>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <SectionHeading
+                eyebrow="Country catalog"
+                title="Add item"
+                description="Store country-specific items, codes, units, and summary group."
+              />
+
+              <form
+                className="space-y-3"
+                onSubmit={handleForm(
+                  "add_item",
+                  (form) => {
+                    const values = new FormData(form);
+
+                    return {
+                      item_code: values.get("item_code"),
+                      item_name: values.get("item_name"),
+                      category: values.get("category"),
+                      department: values.get("department"),
+                      gl_code: values.get("gl_code"),
+                      expense_type: values.get("expense_type"),
+                      unit_measure: values.get("unit_measure"),
+                      summary_group: values.get("summary_group"),
+                    };
+                  },
+                  "Item added to the country catalog.",
+                )}
+              >
+                <Field label="Item code">
+                  <input className={inputClass} name="item_code" />
+                </Field>
+
+                <Field label="Item name">
+                  <input
+                    className={inputClass}
+                    name="item_name"
+                    required
+                  />
+                </Field>
+
+                <Field label="Category">
+                  <input className={inputClass} name="category" />
                 </Field>
 
                 <Field label="Department">
-                  <input
-                    className={inputClass}
-                    name="department"
-                    placeholder="Facilities, Operations…"
-                  />
-                </Field>
-
-                <Field label="Team">
-                  <input
-                    className={inputClass}
-                    name="team"
-                    placeholder="Team or cost centre"
-                  />
+                  <input className={inputClass} name="department" />
                 </Field>
 
                 <Field label="GL code">
@@ -1882,22 +3116,6 @@ export function QuarterlyExpenseWorkspace({
                       </option>
                     ))}
                   </select>
-                </Field>
-
-                <Field label="Category">
-                  <input
-                    className={inputClass}
-                    name="category"
-                    placeholder="Fuel, travel, facilities…"
-                  />
-                </Field>
-
-                <Field label="Summary group">
-                  <input
-                    className={inputClass}
-                    name="summary_group"
-                    placeholder="COGS, OPEX, Capex…"
-                  />
                 </Field>
 
                 <Field label="Expense type">
@@ -1916,410 +3134,11 @@ export function QuarterlyExpenseWorkspace({
                   </select>
                 </Field>
 
-                <Field label="Unit">
+                <Field label="Unit of measure">
                   <input
                     className={inputClass}
-                    name="unit"
+                    name="unit_measure"
                     placeholder="Each, litre, day…"
-                  />
-                </Field>
-
-                <Field label="Quantity">
-                  <input
-                    className={inputClass}
-                    name="quantity"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    defaultValue="1"
-                  />
-                </Field>
-
-                <Field label="Unit cost">
-                  <input
-                    className={inputClass}
-                    name="unit_cost"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="0.00"
-                  />
-                </Field>
-
-                <Field
-                  label="Total amount"
-                  hint={`Currency: ${currency || "quarter currency"}`}
-                >
-                  <input
-                    className={inputClass}
-                    name="amount"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="Enter total, or leave blank to use quantity × unit cost"
-                  />
-                </Field>
-
-                <Field label="Blanket PO">
-                  <input
-                    className={inputClass}
-                    name="blanket_po"
-                    placeholder="Optional PO reference"
-                  />
-                </Field>
-
-                <Field
-                  label="Comment"
-                  className="sm:col-span-2 xl:col-span-3"
-                >
-                  <textarea
-                    className={`${inputClass} min-h-24 resize-y`}
-                    name="comment"
-                    placeholder="Add context for Finance and reviewers"
-                  />
-                </Field>
-
-                <div className="sm:col-span-2 xl:col-span-3">
-                  <details className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <summary className="cursor-pointer text-sm font-bold text-slate-800">
-                      Add alternative vendor quotes
-                    </summary>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Enter up to three alternatives for comparison.
-                    </p>
-
-                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                      {[1, 2, 3].map((index) => (
-                        <div
-                          key={index}
-                          className="space-y-2 rounded-xl border border-slate-200 bg-white p-3"
-                        >
-                          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                            Quote {index}
-                          </p>
-                          <select
-                            className={selectClass}
-                            name={`quote_vendor_${index}`}
-                            defaultValue=""
-                          >
-                            <option value="">Choose vendor</option>
-                            {data.vendors.map((vendor, vendorIndex) => (
-                              <option
-                                key={`quote-vendor-${String(vendor.vendor_id ?? "unknown")}-${vendorIndex}`}
-                                value={String(vendor.vendor_id ?? "")}
-                              >
-                                {vendor.vendor_name}
-                              </option>
-                            ))}
-                          </select>
-                          <input
-                            className={inputClass}
-                            name={`quote_cost_${index}`}
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            placeholder="Unit cost"
-                          />
-                          <input
-                            className={inputClass}
-                            name={`quote_note_${index}`}
-                            placeholder="Note"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </details>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-violet-50 p-4 sm:col-span-2 xl:col-span-3">
-                  <div>
-                    <p className="text-sm font-bold text-violet-950">
-                      Balance preview
-                    </p>
-                    <p className="mt-1 text-xs leading-5 text-violet-800">
-                      This request is counted against the nest’s available
-                      balance while pending. The approved actual amount replaces
-                      the request amount in the balance.
-                    </p>
-                  </div>
-                  <button className={buttonPrimary} disabled={saving}>
-                    {saving ? "Submitting…" : "Submit for review"}
-                  </button>
-                </div>
-              </form>
-            )}
-          </section>
-
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <SectionHeading
-              eyebrow="Quarter ledger"
-              title="Recorded activities"
-              description="Finance and country managers can review entries and record actual amounts."
-            />
-
-            {cycleEntries.length ? (
-              <TableWrap>
-                <table className="min-w-full border-collapse">
-                  <thead>
-                    <tr>
-                      <Th>Nest</Th>
-                      <Th>Activity</Th>
-                      <Th>Vendor</Th>
-                      <Th>GL / Category</Th>
-                      <Th>Amount</Th>
-                      <Th>Status</Th>
-                      <Th>Review</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cycleEntries.map((entry, index) => (
-                      <tr key={`expense-entry-${String(entry.expense_id ?? "unknown")}-${index}`}>
-                        <Td className="font-semibold text-slate-900">
-                          {nestName(entry.nest_id)}
-                        </Td>
-                        <Td>
-                          <p className="font-semibold text-slate-900">
-                            {text(entry.description)}
-                          </p>
-                          {entry.comment && (
-                            <p className="mt-1 max-w-xs text-xs text-slate-500">
-                              {entry.comment}
-                            </p>
-                          )}
-                        </Td>
-                        <Td>{text(entry.vendor_name)}</Td>
-                        <Td>
-                          <p>{text(entry.gl_code)}</p>
-                          <p className="text-xs text-slate-500">
-                            {text(entry.summary_group || entry.category)}
-                          </p>
-                        </Td>
-                        <Td className="font-bold text-slate-900">
-                          {money(
-                            entry.actual_amount ??
-                              entry.amount ??
-                              entry.total_cost,
-                            currency,
-                          )}
-                        </Td>
-                        <Td>
-                          <StatusPill status={entry.status} />
-                        </Td>
-                        <Td>
-                          {canManage &&
-                          ["open", "in_review"].includes(String(selectedCycle?.status)) &&
-                          ["planned", "in_review"].includes(String(entry.status)) ? (
-                            <div className="flex min-w-52 flex-col gap-2">
-                              <input
-                                className={inputClass}
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                placeholder="Actual amount"
-                                defaultValue={entry.actual_amount ?? entry.amount ?? ""}
-                                id={`actual-${entry.expense_id}`}
-                              />
-                              <input
-                                className={inputClass}
-                                placeholder="Review note"
-                                defaultValue={entry.review_note ?? ""}
-                                id={`review-note-${entry.expense_id}`}
-                              />
-                              <p className="text-xs leading-5 text-slate-500">
-                                If the actual cost exceeds available allocation,
-                                explain the overrun in the review note.
-                              </p>
-                              <div className="flex gap-2">
-                                <button
-                                  type="button"
-                                  className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-800"
-                                  disabled={saving}
-                                  onClick={() =>
-                                    void submitAction("review_expense", {
-                                      expenseId: entry.expense_id,
-                                      status: "approved",
-                                      actualAmount:
-                                        (
-                                          document.getElementById(
-                                            `actual-${entry.expense_id}`,
-                                          ) as HTMLInputElement
-                                        )?.value || null,
-                                      reviewNote: (
-                                        document.getElementById(
-                                          `review-note-${entry.expense_id}`,
-                                        ) as HTMLInputElement
-                                      )?.value,
-                                    })
-                                  }
-                                >
-                                  Approve
-                                </button>
-                                <button
-                                  type="button"
-                                  className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800 hover:bg-rose-100"
-                                  disabled={saving}
-                                  onClick={() =>
-                                    void submitAction("review_expense", {
-                                      expenseId: entry.expense_id,
-                                      status: "rejected",
-                                      reviewNote: (
-                                        document.getElementById(
-                                          `review-note-${entry.expense_id}`,
-                                        ) as HTMLInputElement
-                                      )?.value,
-                                    })
-                                  }
-                                >
-                                  Return
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="text-xs font-semibold text-slate-500">
-                              {entry.status === "approved" || entry.status === "actual"
-                                ? "Reviewed"
-                                : entry.status === "rejected"
-                                  ? "Returned"
-                                  : "No action"}
-                            </span>
-                          )}
-                        </Td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </TableWrap>
-            ) : (
-              <EmptyState>
-                No activities have been entered for this quarter yet.
-              </EmptyState>
-            )}
-          </section>
-        </div>
-      )}
-
-      {activeTab === "budgets" && (
-        <div className="space-y-6">
-          {canManage && (
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <SectionHeading
-                eyebrow="Detailed plan"
-                title="Add a budget line"
-                description="Capture the sheet’s planning details by scope, department, GL code, category, quantity, and blanket PO."
-              />
-
-              <form
-                className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
-                onSubmit={handleForm(
-                  "save_budget_line",
-                  (form) => {
-                    const values = new FormData(form);
-
-                    return {
-                      scope_type: values.get("scope_type"),
-                      scope_label: values.get("scope_label"),
-                      nest_id: values.get("nest_id") || null,
-                      department: values.get("department"),
-                      team: values.get("team"),
-                      gl_code: values.get("gl_code"),
-                      category: values.get("category"),
-                      summary_group: values.get("summary_group"),
-                      budget_amount: Number(
-                        values.get("budget_amount") || 0,
-                      ),
-                      blanket_po: values.get("blanket_po"),
-                      quantity: Number(values.get("qty") || 0),
-                      unit_measure: values.get("unit"),
-                      unit_cost: Number(values.get("cost") || 0),
-                      notes: values.get("notes"),
-                    };
-                  },
-                  "Budget line saved.",
-                )}
-              >
-                <Field label="Scope">
-                  <select
-                    className={selectClass}
-                    name="scope_type"
-                    defaultValue="nest"
-                  >
-                    <option value="nest">Nest</option>
-                    <option value="country">Country</option>
-                  </select>
-                </Field>
-
-                <Field label="Scope label">
-                  <input
-                    className={inputClass}
-                    name="scope_label"
-                    placeholder="e.g. Nairobi Nest"
-                  />
-                </Field>
-
-                <Field label="Nest">
-                  <select
-                    className={selectClass}
-                    name="nest_id"
-                    defaultValue=""
-                  >
-                    <option value="">No specific nest</option>
-                    {data.nests.map((nest, index) => {
-                      const nestId = getNestId(nest);
-                      if (nestId === null) return null;
-
-                      return (
-                        <option
-                          key={`budget-nest-${String(nestId)}-${index}`}
-                          value={String(nestId)}
-                        >
-                          {getNestLabel(nest)}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </Field>
-
-                <Field label="Department">
-                  <input
-                    className={inputClass}
-                    name="department"
-                    placeholder="Facilities, Operations…"
-                  />
-                </Field>
-
-                <Field label="Team">
-                  <input
-                    className={inputClass}
-                    name="team"
-                    placeholder="Team or cost centre"
-                  />
-                </Field>
-
-                <Field label="GL code">
-                  <select
-                    className={selectClass}
-                    name="gl_code"
-                    required
-                    defaultValue=""
-                  >
-                    <option value="">Select GL code</option>
-                    {data.glCodes.map((code, index) => (
-                      <option
-                        key={`gl-code-${String(code.gl_code ?? "unknown")}-${index}`}
-                        value={code.gl_code}
-                      >
-                        {code.gl_code} · {code.description}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-
-                <Field label="Category">
-                  <input
-                    className={inputClass}
-                    name="category"
-                    placeholder="Category"
-                    required
                   />
                 </Field>
 
@@ -2331,929 +3150,181 @@ export function QuarterlyExpenseWorkspace({
                   />
                 </Field>
 
-                <Field label="Budget amount">
-                  <input
-                    className={inputClass}
-                    name="budget_amount"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    required
-                  />
-                </Field>
-
-                <Field label="Blanket PO">
-                  <input
-                    className={inputClass}
-                    name="blanket_po"
-                    placeholder="Optional PO reference"
-                  />
-                </Field>
-
-                <Field label="Quantity">
-                  <input
-                    className={inputClass}
-                    name="qty"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                  />
-                </Field>
-
-                <Field label="Unit">
-                  <input
-                    className={inputClass}
-                    name="unit"
-                    placeholder="Each, litre, month…"
-                  />
-                </Field>
-
-                <Field label="Unit cost">
-                  <input
-                    className={inputClass}
-                    name="cost"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                  />
-                </Field>
-
-                <Field label="Notes" className="sm:col-span-2 xl:col-span-3">
-                  <textarea
-                    className={`${inputClass} min-h-20`}
-                    name="notes"
-                    placeholder="Planning notes"
-                  />
-                </Field>
-
-                <div className="sm:col-span-2 xl:col-span-3">
-                  <button
-                    className={buttonPrimary}
-                    disabled={saving || !selectedCycle}
-                  >
-                    Save budget line
-                  </button>
-                </div>
+                <button className={buttonPrimary} disabled={saving}>
+                  Add item
+                </button>
               </form>
             </section>
-          )}
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <SectionHeading
-              eyebrow="Budget tracking"
-              title="Budget versus recorded expenses"
-              description="Variance is budget amount minus matching expense entries, grouped by GL code or summary group."
-            />
-
-            {budgetVarianceRows.length ? (
-              <TableWrap>
-                <table className="min-w-full border-collapse">
-                  <thead>
-                    <tr>
-                      <Th>Scope</Th>
-                      <Th>Department / Team</Th>
-                      <Th>GL / Category</Th>
-                      <Th>Budget</Th>
-                      <Th>Recorded</Th>
-                      <Th>Variance</Th>
-                      <Th>Blanket PO</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {budgetVarianceRows.map((line, index) => (
-                      <tr key={`budget-line-${String(line.budget_id ?? "unknown")}-${index}`}>
-                        <Td className="font-semibold text-slate-900">
-                          {text(
-                            line.scope_label ||
-                              (line.nest_id
-                                ? nestName(line.nest_id)
-                                : line.scope_type),
-                          )}
-                        </Td>
-                        <Td>
-                          {text(line.department)}
-                          <p className="text-xs text-slate-500">
-                            {text(line.team)}
-                          </p>
-                        </Td>
-                        <Td>
-                          {text(line.gl_code)}
-                          <p className="text-xs text-slate-500">
-                            {text(line.summary_group || line.category)}
-                          </p>
-                        </Td>
-                        <Td>{money(line.budget_amount, currency)}</Td>
-                        <Td>{money(line.spent, currency)}</Td>
-                        <Td
-                          className={
-                            line.variance < 0
-                              ? "font-bold text-rose-700"
-                              : "font-bold text-emerald-700"
-                          }
-                        >
-                          {money(line.variance, currency)}
-                        </Td>
-                        <Td>{text(line.blanket_po)}</Td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </TableWrap>
-            ) : (
-              <EmptyState>
-                No detailed budget lines have been entered for this quarter.
-              </EmptyState>
-            )}
-          </section>
-        </div>
-      )}
-
-      {activeTab === "fuel" && (
-        <div className="space-y-6">
-          {canManage && (
             <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <SectionHeading
-                eyebrow="Fuel register"
-                title="Add a vehicle or generator"
-                description="Maintain country fuel assets for vehicle, generator, and fuel card planning."
+                eyebrow="Country catalog"
+                title="Add GL code"
+                description="Finance can use GL codes to organise budget and expense analysis."
               />
 
               <form
-                className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+                className="space-y-3"
                 onSubmit={handleForm(
-                  "add_fuel_asset",
+                  "add_gl_code",
                   (form) => {
                     const values = new FormData(form);
 
                     return {
-                      identifier: values.get("identifier"),
-                      asset_type: values.get("asset_type"),
-                      nest_id: values.get("nest_id") || null,
-                      model: values.get("model"),
-                      purpose: values.get("purpose"),
-                      fuel_type: values.get("fuel_type"),
-                      vendor_name: values.get("vendor_name"),
-                      consumption_rate: Number(values.get("consumption_rate") || 0),
-                      consumption_basis: values.get("consumption_basis"),
-                      notes: values.get("notes"),
+                      gl_code: values.get("gl_code"),
+                      description: values.get("description"),
+                      category: values.get("category"),
+                      summary_group: values.get("summary_group"),
                     };
                   },
-                  "Fuel asset added.",
+                  "GL code added.",
                 )}
               >
-                <Field label="Vehicle plate / asset identifier">
+                <Field label="GL code">
                   <input
                     className={inputClass}
-                    name="identifier"
-                    placeholder="Registration or generator ID"
+                    name="gl_code"
                     required
                   />
                 </Field>
 
-                <Field label="Asset type">
-                  <select
-                    className={selectClass}
-                    name="asset_type"
-                    defaultValue="vehicle"
-                  >
-                    <option value="vehicle">Vehicle</option>
-                    <option value="generator">Generator</option>
-                    <option value="fuel_card">Fuel card</option>
-                  </select>
-                </Field>
-
-                <Field label="Nest">
-                  <select
-                    className={selectClass}
-                    name="nest_id"
-                    defaultValue=""
-                  >
-                    <option value="">Country-wide / unassigned</option>
-                    {data.nests.map((nest, index) => {
-                      const nestId = getNestId(nest);
-                      if (nestId === null) return null;
-
-                      return (
-                        <option
-                          key={`fuel-nest-${String(nestId)}-${index}`}
-                          value={String(nestId)}
-                        >
-                          {getNestLabel(nest)}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </Field>
-
-                <Field label="Make and model">
+                <Field label="Description">
                   <input
                     className={inputClass}
-                    name="model"
-                    placeholder="Toyota Hiace, 150 kVA generator…"
+                    name="description"
+                    required
                   />
                 </Field>
 
-                <Field label="Purpose">
+                <Field label="Category">
+                  <input className={inputClass} name="category" />
+                </Field>
+
+                <Field label="Summary group">
                   <input
                     className={inputClass}
-                    name="purpose"
-                    placeholder="Operational purpose"
+                    name="summary_group"
                   />
                 </Field>
 
-                <Field label="Fuel type">
-                  <input className={inputClass} name="fuel_type" placeholder="Diesel, petrol, electric…" />
-                </Field>
-
-                <Field label="Default vendor">
-                  <select className={selectClass} name="vendor_name" defaultValue="">
-                    <option value="">Select vendor</option>
-                    {data.vendors.map((vendor, index) => (
-                      <option key={`asset-vendor-${String(vendor.vendor_id)}-${index}`} value={String(vendor.vendor_name)}>{vendor.vendor_name}</option>
-                    ))}
-                  </select>
-                </Field>
-
-                <Field label="Consumption rate">
-                  <input className={inputClass} name="consumption_rate" type="number" min="0" step="0.01" defaultValue="0" />
-                </Field>
-
-                <Field label="Rate basis">
-                  <select className={selectClass} name="consumption_basis" defaultValue="per_100km">
-                    <option value="per_100km">Litres per 100 km</option>
-                    <option value="per_hour">Litres per generator hour</option>
-                  </select>
-                </Field>
-
-                <Field label="Notes">
-                  <input className={inputClass} name="notes" placeholder="Fuel card, operational notes…" />
-                </Field>
-
-                <div className="sm:col-span-2 xl:col-span-3">
-                  <button
-                    className={buttonPrimary}
-                    disabled={saving || !selectedCycle}
-                  >
-                    Add fuel asset
-                  </button>
-                </div>
+                <button className={buttonPrimary} disabled={saving}>
+                  Add GL code
+                </button>
               </form>
             </section>
-          )}
+          </>
+        )}
 
-          {selectedCycle && canEditCycle && (
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <SectionHeading
-                eyebrow="Quarter fuel plan"
-                title="Submit or update the quarter fuel request"
-                description="Choose a vehicle or generator, its nest, the country vendor, usage, consumption rate and price. The application calculates the quarter estimate and saves it for everyone with access to this quarter."
-              />
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-3">
+          <SectionHeading
+            eyebrow="Available choices"
+            title="Country vendors, items, and GL codes"
+            description="These lists are available in the expense entry forms for the selected country."
+          />
 
-              <form
-                className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
-                onSubmit={handleForm(
-                  "save_fuel_plan",
-                  (form) => {
-                    const values = new FormData(form);
+          <div className="grid gap-5 lg:grid-cols-3">
+            <div>
+              <h3 className="mb-3 text-sm font-bold text-slate-900">
+                Vendors
+              </h3>
 
-                    return {
-                      asset_id: values.get("asset_id"),
-                      nest_id: values.get("nest_id"),
-                      vendor_id: values.get("vendor_id") || null,
-                      projected_monthly_activity: Number(values.get("monthly_activity") || 0),
-                      cost_per_litre: Number(
-                        values.get("cost_per_litre") || 0,
-                      ),
-                      consumption_rate: Number(values.get("consumption_rate") || 0),
-                      consumption_basis: values.get("consumption_basis"),
-                      notes: values.get("notes"),
-                    };
-                  },
-                  "Fuel plan saved.",
-                )}
-              >
-                <Field label="Vehicle / generator / fuel card">
-                  <select
-                    className={selectClass}
-                    name="asset_id"
-                    required
-                    defaultValue=""
-                  >
-                    <option value="" disabled>
-                      Select an asset
-                    </option>
-                    {data.fuelAssets.map((asset, index) => (
-                      <option
-                        key={`fuel-asset-${String(asset.asset_id ?? "unknown")}-${index}`}
-                        value={asset.asset_id}
-                      >
-                        {asset.identifier || "Fuel asset"}
-                        {asset.model ? ` · ${asset.model}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-
-                <Field label="Nest">
-                  <select className={selectClass} name="nest_id" required defaultValue="">
-                    <option value="">Select the nest for this request</option>
-                    {data.nests.map((nest, index) => {
-                      const nestId = getNestId(nest);
-                      if (nestId === null) return null;
-                      if (!canManage && !canRecordNestIds.includes(String(nestId))) return null;
-                      return <option key={`fuel-plan-nest-${String(nestId)}-${index}`} value={String(nestId)}>{getNestLabel(nest)}</option>;
-                    })}
-                  </select>
-                </Field>
-
-                <Field label="Country fuel vendor">
-                  <select
-                    className={selectClass}
-                    name="vendor_id"
-                    required
-                    defaultValue=""
-                  >
-                    <option value="">Select vendor</option>
-                    {data.vendors.map((vendor, index) => (
-                      <option
-                        key={`vendor-${String(vendor.vendor_id ?? "unknown")}-${index}`}
-                        value={vendor.vendor_id}
-                      >
+              {data.vendors.length ? (
+                <ul className="space-y-2">
+                  {data.vendors.map((vendor, index) => (
+                    <li
+                      key={`vendor-${String(vendor.vendor_id ?? "unknown")}-${index}`}
+                      className="rounded-xl border border-slate-200 px-3 py-2.5"
+                    >
+                      <p className="text-sm font-semibold text-slate-900">
                         {vendor.vendor_name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-
-                <Field label="Fuel type / usage basis">
-                  <select className={selectClass} name="consumption_basis" defaultValue="per_100km">
-                    <option value="per_100km">Vehicle · litres per 100 km</option>
-                    <option value="per_hour">Generator · litres per hour</option>
-                  </select>
-                </Field>
-
-                <Field label="Consumption rate">
-                  <input
-                    className={inputClass}
-                    name="consumption_rate"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    required
-                  />
-                </Field>
-
-                <Field label="Monthly km or generator hours">
-                  <input
-                    className={inputClass}
-                    name="monthly_activity"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    required
-                    placeholder="Enter monthly kilometres or hours"
-                  />
-                </Field>
-
-                <Field label="Cost per litre">
-                  <input
-                    className={inputClass}
-                    name="cost_per_litre"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    required
-                  />
-                </Field>
-
-                <Field label="Request notes">
-                  <input
-                    className={inputClass}
-                    name="notes"
-                    placeholder="Purpose, route, operational context…"
-                  />
-                </Field>
-
-                <div className="sm:col-span-2 xl:col-span-3">
-                  <button
-                    className={buttonPrimary}
-                    disabled={saving || !selectedCycle}
-                  >
-                    Save fuel plan
-                  </button>
-                </div>
-              </form>
-            </section>
-          )}
-
-          {data.fuelPlans.length > 0 && (
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <SectionHeading
-                eyebrow="Fuel actuals"
-                title="Record quarterly fuel actuals"
-                description="Use this after the quarter’s fuel activity is known to compare actual litres and cost with the plan."
-              />
-
-              <div className="space-y-3">
-                {data.fuelPlans.map((plan, index) => (
-                  <form
-                    key={`fuel-plan-${String(
-                      plan.fuel_plan_id ?? plan.plan_id ?? "unknown",
-                    )}-${index}`}
-                    className="grid gap-3 rounded-xl border border-slate-200 p-4 sm:grid-cols-2 xl:grid-cols-5"
-                    onSubmit={handleForm(
-                      "record_fuel_actual",
-                      (form) => {
-                        const values = new FormData(form);
-
-                        return {
-                          fuel_plan_id:
-                            plan.fuel_plan_id || plan.plan_id,
-                          actual_monthly_activity: Number(
-                            values.get("actual_monthly_activity") || 0,
-                          ),
-                          actual_quarterly_litres: Number(
-                            values.get("actual_quarterly_litres") || 0,
-                          ),
-                          actual_quarterly_cost: Number(
-                            values.get("actual_quarterly_cost") || 0,
-                          ),
-                          actual_notes: values.get("actual_notes"),
-                        };
-                      },
-                      "Fuel actuals recorded.",
-                    )}
-                  >
-                    <div className="xl:col-span-2">
-                      <p className="font-bold text-slate-900">
-                        {text(
-                          data.fuelAssets.find((asset) => String(asset.asset_id) === String(plan.asset_id))?.identifier,
-                          "Fuel asset",
-                        )}
                       </p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {text(data.fuelAssets.find((asset) => String(asset.asset_id) === String(plan.asset_id))?.model, "Fuel")}
-                        {" · "}{text(plan.vendor_name_snapshot, "Vendor not selected")}
-                        {" · Plan: "}{money(plan.estimated_quarterly_cost, currency)}
-                        {" · "}{numberValue(plan.estimated_quarterly_litres)} litres
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {text(vendor.vendor_code, "No vendor code")}
                       </p>
-                    </div>
-
-                    <Field label="Actual activity">
-                      <input
-                        className={inputClass}
-                        name="actual_monthly_activity"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        defaultValue={plan.actual_monthly_activity ?? ""}
-                        disabled={!canManage || !canEditCycle}
-                      />
-                    </Field>
-
-                    <Field label="Actual quarter litres">
-                      <input
-                        className={inputClass}
-                        name="actual_quarterly_litres"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        defaultValue={plan.actual_quarterly_litres ?? ""}
-                        disabled={!canManage || !canEditCycle}
-                      />
-                    </Field>
-
-                    <Field label="Actual quarter cost">
-                      <input
-                        className={inputClass}
-                        name="actual_quarterly_cost"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        defaultValue={plan.actual_quarterly_cost ?? ""}
-                        disabled={!canManage || !canEditCycle}
-                      />
-                    </Field>
-
-                    <Field
-                      label="Actual notes"
-                      className="sm:col-span-2 xl:col-span-4"
-                    >
-                      <input
-                        className={inputClass}
-                        name="actual_notes"
-                        defaultValue={plan.actual_notes ?? ""}
-                        placeholder="Notes"
-                        disabled={!canManage || !canEditCycle}
-                      />
-                    </Field>
-
-                    <div className="flex items-end">
-                      <button className={buttonPrimary} disabled={saving || !canManage || !canEditCycle}>
-                        Save actuals
-                      </button>
-                    </div>
-                  </form>
-                ))}
-              </div>
-            </section>
-          )}
-
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <SectionHeading
-              eyebrow="Country assets"
-              title="Fuel assets"
-              description="Vehicles, generators, and fuel cards configured for this country."
-            />
-
-            {data.fuelAssets.length ? (
-              <TableWrap>
-                <table className="min-w-full border-collapse">
-                  <thead>
-                    <tr>
-                      <Th>Asset</Th>
-                      <Th>Type</Th>
-                      <Th>Nest</Th>
-                      <Th>Identifier</Th>
-                      <Th>Purpose</Th>
-                      <Th>Status</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.fuelAssets.map((asset, index) => (
-                      <tr key={`fuel-asset-${String(asset.asset_id ?? "unknown")}-${index}`}>
-                        <Td className="font-semibold text-slate-900">
-                          {text(asset.model || asset.identifier)}
-                        </Td>
-                        <Td>{text(asset.asset_type)}</Td>
-                        <Td>
-                          {asset.nest_id
-                            ? nestName(asset.nest_id)
-                            : "Country-wide"}
-                        </Td>
-                        <Td>{text(asset.identifier)}</Td>
-                        <Td>{text(asset.purpose)}</Td>
-                        <Td>
-                          <StatusPill status={asset.is_active ? "active" : "inactive"} />
-                        </Td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </TableWrap>
-            ) : (
-              <EmptyState>
-                No fuel assets have been added for this country.
-              </EmptyState>
-            )}
-          </section>
-        </div>
-      )}
-
-      {activeTab === "catalog" && (
-        <div className="grid gap-6 xl:grid-cols-3">
-          {canManage && (
-            <>
-              <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <SectionHeading
-                  eyebrow="Country catalog"
-                  title="Add vendor"
-                  description="Vendors are selectable by users working in this country."
-                />
-
-                <form
-                  className="space-y-3"
-                  onSubmit={handleForm(
-                    "add_vendor",
-                    (form) => {
-                      const values = new FormData(form);
-
-                      return {
-                        vendor_name: values.get("vendor_name"),
-                        vendor_code: values.get("vendor_code"),
-                        contact_name: values.get("contact_name"),
-                        phone: values.get("phone"),
-                        email: values.get("email"),
-                        notes: values.get("notes"),
-                      };
-                    },
-                    "Vendor added to the country list.",
-                  )}
-                >
-                  <Field label="Vendor name">
-                    <input
-                      className={inputClass}
-                      name="vendor_name"
-                      required
-                    />
-                  </Field>
-
-                  <Field label="Vendor code">
-                    <input className={inputClass} name="vendor_code" />
-                  </Field>
-
-                  <Field label="Contact name">
-                    <input className={inputClass} name="contact_name" />
-                  </Field>
-
-                  <Field label="Phone">
-                    <input className={inputClass} name="phone" />
-                  </Field>
-
-                  <Field label="Email">
-                    <input
-                      className={inputClass}
-                      name="email"
-                      type="email"
-                    />
-                  </Field>
-
-                  <Field label="Notes">
-                    <textarea
-                      className={`${inputClass} min-h-20`}
-                      name="notes"
-                    />
-                  </Field>
-
-                  <button className={buttonPrimary} disabled={saving}>
-                    Add vendor
-                  </button>
-                </form>
-              </section>
-
-              <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <SectionHeading
-                  eyebrow="Country catalog"
-                  title="Add item"
-                  description="Store country-specific items, codes, units, and summary group."
-                />
-
-                <form
-                  className="space-y-3"
-                  onSubmit={handleForm(
-                    "add_item",
-                    (form) => {
-                      const values = new FormData(form);
-
-                      return {
-                        item_code: values.get("item_code"),
-                        item_name: values.get("item_name"),
-                        category: values.get("category"),
-                        department: values.get("department"),
-                        gl_code: values.get("gl_code"),
-                        expense_type: values.get("expense_type"),
-                        unit_measure: values.get("unit_measure"),
-                        summary_group: values.get("summary_group"),
-                      };
-                    },
-                    "Item added to the country catalog.",
-                  )}
-                >
-                  <Field label="Item code">
-                    <input className={inputClass} name="item_code" />
-                  </Field>
-
-                  <Field label="Item name">
-                    <input
-                      className={inputClass}
-                      name="item_name"
-                      required
-                    />
-                  </Field>
-
-                  <Field label="Category">
-                    <input className={inputClass} name="category" />
-                  </Field>
-
-                  <Field label="Department">
-                    <input className={inputClass} name="department" />
-                  </Field>
-
-                  <Field label="GL code">
-                    <select
-                      className={selectClass}
-                      name="gl_code"
-                      defaultValue=""
-                    >
-                      <option value="">Select GL code</option>
-                      {data.glCodes.map((code, index) => (
-                        <option
-                          key={`gl-code-${String(code.gl_code ?? "unknown")}-${index}`}
-                          value={code.gl_code}
-                        >
-                          {code.gl_code} · {code.description}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-
-                  <Field label="Expense type">
-                    <select
-                      className={selectClass}
-                      name="expense_type"
-                      defaultValue=""
-                    >
-                      <option value="">Select type</option>
-                      <option value="recurring">Recurring</option>
-                      <option value="one_off">One-off</option>
-                      <option value="discretionary">Discretionary</option>
-                      <option value="non_discretionary">
-                        Non-discretionary
-                      </option>
-                    </select>
-                  </Field>
-
-                  <Field label="Unit of measure">
-                    <input
-                      className={inputClass}
-                      name="unit_measure"
-                      placeholder="Each, litre, day…"
-                    />
-                  </Field>
-
-                  <Field label="Summary group">
-                    <input
-                      className={inputClass}
-                      name="summary_group"
-                      placeholder="COGS, OPEX, Capex…"
-                    />
-                  </Field>
-
-                  <button className={buttonPrimary} disabled={saving}>
-                    Add item
-                  </button>
-                </form>
-              </section>
-
-              <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <SectionHeading
-                  eyebrow="Country catalog"
-                  title="Add GL code"
-                  description="Finance can use GL codes to organise budget and expense analysis."
-                />
-
-                <form
-                  className="space-y-3"
-                  onSubmit={handleForm(
-                    "add_gl_code",
-                    (form) => {
-                      const values = new FormData(form);
-
-                      return {
-                        gl_code: values.get("gl_code"),
-                        description: values.get("description"),
-                        category: values.get("category"),
-                        summary_group: values.get("summary_group"),
-                      };
-                    },
-                    "GL code added.",
-                  )}
-                >
-                  <Field label="GL code">
-                    <input
-                      className={inputClass}
-                      name="gl_code"
-                      required
-                    />
-                  </Field>
-
-                  <Field label="Description">
-                    <input
-                      className={inputClass}
-                      name="description"
-                      required
-                    />
-                  </Field>
-
-                  <Field label="Category">
-                    <input className={inputClass} name="category" />
-                  </Field>
-
-                  <Field label="Summary group">
-                    <input
-                      className={inputClass}
-                      name="summary_group"
-                    />
-                  </Field>
-
-                  <button className={buttonPrimary} disabled={saving}>
-                    Add GL code
-                  </button>
-                </form>
-              </section>
-            </>
-          )}
-
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-3">
-            <SectionHeading
-              eyebrow="Available choices"
-              title="Country vendors, items, and GL codes"
-              description="These lists are available in the expense entry forms for the selected country."
-            />
-
-            <div className="grid gap-5 lg:grid-cols-3">
-              <div>
-                <h3 className="mb-3 text-sm font-bold text-slate-900">
-                  Vendors
-                </h3>
-
-                {data.vendors.length ? (
-                  <ul className="space-y-2">
-                    {data.vendors.map((vendor, index) => (
-                      <li
-                        key={`vendor-${String(vendor.vendor_id ?? "unknown")}-${index}`}
-                        className="rounded-xl border border-slate-200 px-3 py-2.5"
-                      >
-                        <p className="text-sm font-semibold text-slate-900">
-                          {vendor.vendor_name}
-                        </p>
-                        <p className="mt-0.5 text-xs text-slate-500">
-                          {text(vendor.vendor_code, "No vendor code")}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <EmptyState>No vendors have been added.</EmptyState>
-                )}
-              </div>
-
-              <div>
-                <h3 className="mb-3 text-sm font-bold text-slate-900">
-                  Items
-                </h3>
-
-                {data.items.length ? (
-                  <ul className="space-y-2">
-                    {data.items.map((item, index) => (
-                      <li
-                        key={`item-${String(item.item_id ?? "unknown")}-${index}`}
-                        className="rounded-xl border border-slate-200 px-3 py-2.5"
-                      >
-                        <p className="text-sm font-semibold text-slate-900">
-                          {item.item_code ? `${item.item_code} · ` : ""}
-                          {item.item_name}
-                        </p>
-                        <p className="mt-0.5 text-xs text-slate-500">
-                          {[
-                            item.category,
-                            item.gl_code,
-                            item.unit_measure,
-                          ]
-                            .filter(Boolean)
-                            .join(" · ") || "No category details"}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <EmptyState>No items have been added.</EmptyState>
-                )}
-              </div>
-
-              <div>
-                <h3 className="mb-3 text-sm font-bold text-slate-900">
-                  GL codes
-                </h3>
-
-                {data.glCodes.length ? (
-                  <ul className="space-y-2">
-                    {data.glCodes.map((code, index) => (
-                      <li
-                        key={`gl-code-${String(code.gl_code ?? "unknown")}-${index}`}
-                        className="rounded-xl border border-slate-200 px-3 py-2.5"
-                      >
-                        <p className="text-sm font-semibold text-slate-900">
-                          {code.gl_code}
-                        </p>
-                        <p className="mt-0.5 text-xs text-slate-500">
-                          {text(code.description)}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <EmptyState>No GL codes have been added.</EmptyState>
-                )}
-              </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <EmptyState>No vendors have been added.</EmptyState>
+              )}
             </div>
-          </section>
-        </div>
-      )}
 
-      {isFinance && activeTab !== "overview" && (
-        <p className="mt-6 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-900">
-          Finance view: use the country and quarter selectors to review data.
-          Updates to allocations, catalogs, and fuel plans are available to
-          users whose account has country management permission.
-        </p>
-      )}
+            <div>
+              <h3 className="mb-3 text-sm font-bold text-slate-900">
+                Items
+              </h3>
 
-      <footer className="mt-8 border-t border-slate-200 pt-4 text-xs leading-5 text-slate-500">
-        Amounts are shown in the selected quarter’s currency. USD comparisons use
-        the stored exchange rate. Confirm the exchange rate and source values
-        before using the comparisons for financial reporting.
-      </footer>
-    </main>
-  );
+              {data.items.length ? (
+                <ul className="space-y-2">
+                  {data.items.map((item, index) => (
+                    <li
+                      key={`item-${String(item.item_id ?? "unknown")}-${index}`}
+                      className="rounded-xl border border-slate-200 px-3 py-2.5"
+                    >
+                      <p className="text-sm font-semibold text-slate-900">
+                        {item.item_code ? `${item.item_code} · ` : ""}
+                        {item.item_name}
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {[
+                          item.category,
+                          item.gl_code,
+                          item.unit_measure,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ") || "No category details"}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <EmptyState>No items have been added.</EmptyState>
+              )}
+            </div>
+
+            <div>
+              <h3 className="mb-3 text-sm font-bold text-slate-900">
+                GL codes
+              </h3>
+
+              {data.glCodes.length ? (
+                <ul className="space-y-2">
+                  {data.glCodes.map((code, index) => (
+                    <li
+                      key={`gl-code-${String(code.gl_code ?? "unknown")}-${index}`}
+                      className="rounded-xl border border-slate-200 px-3 py-2.5"
+                    >
+                      <p className="text-sm font-semibold text-slate-900">
+                        {code.gl_code}
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {text(code.description)}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <EmptyState>No GL codes have been added.</EmptyState>
+              )}
+            </div>
+          </div>
+        </section>
+      </div>
+    )}
+
+    {isFinance && activeTab !== "overview" && (
+      <p className="mt-6 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-900">
+        Finance view: use the country and quarter selectors to review data.
+        Updates to allocations, catalogs, and fuel plans are available to
+        users whose account has country management permission.
+      </p>
+    )}
+
+    <footer className="mt-8 border-t border-slate-200 pt-4 text-xs leading-5 text-slate-500">
+      Amounts are shown in the selected quarter’s currency. USD comparisons use
+      the stored exchange rate. Confirm the exchange rate and source values
+      before using the comparisons for financial reporting.
+    </footer>
+  </main>
+);
 }

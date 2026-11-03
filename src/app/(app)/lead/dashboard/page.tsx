@@ -402,7 +402,7 @@ export default function NestLeadDashboardPage() {
           </div>
 
           <span className="w-fit rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-[10px] font-bold tracking-wide text-violet-900 sm:ml-3">
-            LIVE SUPABASE DATA
+            Get Lead Insight
           </span>
         </section>
 
